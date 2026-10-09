@@ -1,0 +1,398 @@
+{
+  "TimeEvents": [
+    {
+      "event_id": "c3b4e94c-bea8-49fa-a76b-d5596871eb95",
+      "user_id": 16,
+      "event_type": "START_WORK",
+      "timestamp": "2026-10-08T09:55:29.554243Z",
+      "source": "web",
+      "session_id": ""
+    },
+    {
+      "event_id": "5efde3ee-8838-4469-8856-853af560b3f1",
+      "user_id": 16,
+      "event_type": "START_BREAK",
+      "timestamp": "2026-10-08T09:55:45.712025Z",
+      "source": "web",
+      "session_id": ""
+    },
+    {
+      "event_id": "4e914196-9fba-41f4-b313-b88a3b66a94c",
+      "user_id": 16,
+      "event_type": "RESUME_WORK",
+      "timestamp": "2026-10-08T09:56:03.335427Z",
+      "source": "web",
+      "session_id": ""
+    },
+    {
+      "event_id": "9b0b0777-a25c-44fd-b809-7bcc2e9eb804",
+      "user_id": 16,
+      "event_type": "END_WORK",
+      "timestamp": "2026-10-08T09:57:08.237173Z",
+      "source": "web",
+      "session_id": ""
+    }
+  ],
+  "TaskLogs": [
+    {
+      "task_log_id": "2e3e11a0-0d06-4299-b59b-b2dbd2b5e4bd",
+      "user_id": 16,
+      "employee_id": "AMANBENDKULE002",
+      "employee_name": "Aman Bendkule",
+      "date": "2026-10-08",
+      "project_name": "NR",
+      "task_name": "WEBSITE DEVELOPMENT",
+      "description": "WEB",
+      "start_time": "2026-10-08T09:55:29.613494Z",
+      "end_time": "2026-10-08T09:56:34.780974Z",
+      "status": "COMPLETED",
+      "created_at": "2026-10-08T09:55:29.613494Z",
+      "updated_at": "2026-10-08T09:56:34.780974Z"
+    },
+    {
+      "task_log_id": "d78c7740-c1d7-4c90-8644-dee2b3a822ac",
+      "user_id": 16,
+      "employee_id": "AMANBENDKULE002",
+      "employee_name": "Aman Bendkule",
+      "date": "2026-10-08",
+      "project_name": "PRR",
+      "task_name": "WEBSITE",
+      "description": "WEB",
+      "start_time": "2026-10-08T09:56:34.817181Z",
+      "end_time": "2026-10-08T09:56:47.350815Z",
+      "status": "COMPLETED",
+      "created_at": "2026-10-08T09:56:34.817181Z",
+      "updated_at": "2026-10-08T09:56:47.350815Z"
+    }
+  ],
+  "TimesheetEntries": [],
+  "AuditLog": [
+    {
+      "log_id": "ff3c1220-b5be-4d90-ac59-25621f2e8d76",
+      "action": "UPDATE_USER",
+      "actor": "admin@knowletive.com",
+      "timestamp": "2026-10-08T09:30:11.491448Z",
+      "details": "{\"updated_user_id\": 2, \"employee_id\": \"EXISTING001\", \"email\": \"new.work.email@knowletive.com\", \"role\": \"EMPLOYEE\", \"approval_status\": \"APPROVED\", \"is_active\": true}"
+    },
+    {
+      "log_id": "311bc9c4-e8ef-4587-b6bc-dfd433980ece",
+      "action": "USER_LOGIN",
+      "actor": "new.work.email@knowletive.com",
+      "timestamp": "2026-10-08T09:30:12.606297Z",
+      "details": "{\"user_id\": 2, \"role\": \"EMPLOYEE\"}"
+    },
+    {
+      "log_id": "106a22fd-3402-49cd-b388-008b4a025a69",
+      "action": "CREATE_INITIAL_ADMIN",
+      "actor": "knowletive@gmail.com",
+      "timestamp": "2026-10-08T09:42:15.438501Z",
+      "details": "{\"user_id\": 15, \"email\": \"knowletive@gmail.com\", \"role\": \"ADMIN\", \"approval_status\": \"APPROVED\", \"method\": \"setup_admin_command\"}"
+    },
+    {
+      "log_id": "9b939d46-9f44-42fc-b2f4-4249ab2ce227",
+      "action": "USER_LOGIN",
+      "actor": "Amin001",
+      "timestamp": "2026-10-08T09:42:39.356557Z",
+      "details": "{\"user_id\": 15, \"role\": \"ADMIN\"}"
+    },
+    {
+      "log_id": "beb4ba15-d014-412d-afee-a47a03d4b85f",
+      "action": "USER_LOGIN",
+      "actor": "Amin001",
+      "timestamp": "2026-10-08T09:42:40.649678Z",
+      "details": "{\"user_id\": 15, \"role\": \"ADMIN\"}"
+    },
+    {
+      "log_id": "934d6af4-91b4-4771-8a60-e85a36230a7e",
+      "action": "USER_LOGIN",
+      "actor": "Amin001",
+      "timestamp": "2026-10-08T09:43:33.463848Z",
+      "details": "{\"user_id\": 15, \"role\": \"ADMIN\"}"
+    },
+    {
+      "log_id": "dfe221d2-5858-4ffa-8a0a-80da1e63b3c3",
+      "action": "UPDATE_USER",
+      "actor": "knowletive@gmail.com",
+      "timestamp": "2026-10-08T09:44:52.082772Z",
+      "details": "{\"updated_user_id\": 10, \"employee_id\": \"AYUSHKADAM001\", \"email\": \"\", \"role\": \"EMPLOYEE\", \"approval_status\": \"APPROVED\", \"is_active\": false}"
+    },
+    {
+      "log_id": "ecc55bfc-107c-4a74-ac3c-e65abd27d374",
+      "action": "UPDATE_USER",
+      "actor": "knowletive@gmail.com",
+      "timestamp": "2026-10-08T09:44:55.111723Z",
+      "details": "{\"updated_user_id\": 10, \"employee_id\": \"AYUSHKADAM001\", \"email\": \"\", \"role\": \"EMPLOYEE\", \"approval_status\": \"APPROVED\", \"is_active\": true}"
+    },
+    {
+      "log_id": "cbe11127-326e-4e17-8b8f-5f15b9716e02",
+      "action": "UPDATE_USER",
+      "actor": "knowletive@gmail.com",
+      "timestamp": "2026-10-08T09:44:55.880061Z",
+      "details": "{\"updated_user_id\": 10, \"employee_id\": \"AYUSHKADAM001\", \"email\": \"\", \"role\": \"EMPLOYEE\", \"approval_status\": \"APPROVED\", \"is_active\": false}"
+    },
+    {
+      "log_id": "5aa95825-be21-4a0e-a003-3705c9465fa1",
+      "action": "UPDATE_USER",
+      "actor": "knowletive@gmail.com",
+      "timestamp": "2026-10-08T09:45:01.241619Z",
+      "details": "{\"updated_user_id\": 10, \"employee_id\": \"AYUSHKADAM001\", \"email\": \"\", \"role\": \"EMPLOYEE\", \"approval_status\": \"APPROVED\", \"is_active\": true}"
+    },
+    {
+      "log_id": "1ea2c26c-1688-48cd-9946-5a9bbdd2e9f7",
+      "action": "UPDATE_USER",
+      "actor": "knowletive@gmail.com",
+      "timestamp": "2026-10-08T09:45:04.296982Z",
+      "details": "{\"updated_user_id\": 10, \"employee_id\": \"AYUSHKADAM001\", \"email\": \"\", \"role\": \"EMPLOYEE\", \"approval_status\": \"APPROVED\", \"is_active\": false}"
+    },
+    {
+      "log_id": "f2655516-8c93-4b4a-b7a6-4e8530f94a11",
+      "action": "UPDATE_USER",
+      "actor": "knowletive@gmail.com",
+      "timestamp": "2026-10-08T09:45:05.224367Z",
+      "details": "{\"updated_user_id\": 10, \"employee_id\": \"AYUSHKADAM001\", \"email\": \"\", \"role\": \"EMPLOYEE\", \"approval_status\": \"APPROVED\", \"is_active\": true}"
+    },
+    {
+      "log_id": "539e1486-6687-4dbf-bc9f-191eba0d3fc7",
+      "action": "UPDATE_USER",
+      "actor": "knowletive@gmail.com",
+      "timestamp": "2026-10-08T09:45:06.269068Z",
+      "details": "{\"updated_user_id\": 10, \"employee_id\": \"AYUSHKADAM001\", \"email\": \"\", \"role\": \"EMPLOYEE\", \"approval_status\": \"APPROVED\", \"is_active\": false}"
+    },
+    {
+      "log_id": "a41e1b93-d923-4bf1-afe7-95217aae5277",
+      "action": "UPDATE_USER",
+      "actor": "knowletive@gmail.com",
+      "timestamp": "2026-10-08T09:45:06.822233Z",
+      "details": "{\"updated_user_id\": 10, \"employee_id\": \"AYUSHKADAM001\", \"email\": \"\", \"role\": \"EMPLOYEE\", \"approval_status\": \"APPROVED\", \"is_active\": true}"
+    },
+    {
+      "log_id": "9bd63817-5e83-448c-846e-b2975b521933",
+      "action": "USER_LOGOUT",
+      "actor": "knowletive@gmail.com",
+      "timestamp": "2026-10-08T09:45:41.255998Z",
+      "details": "{\"user_id\": 15}"
+    },
+    {
+      "log_id": "c0b13033-74fc-4eae-93ce-f03f5d152a54",
+      "action": "USER_LOGIN",
+      "actor": "Amin001",
+      "timestamp": "2026-10-08T09:46:10.269321Z",
+      "details": "{\"user_id\": 15, \"role\": \"ADMIN\"}"
+    },
+    {
+      "log_id": "6619af61-30bc-46bc-9a67-ee0365b2ed2d",
+      "action": "USER_LOGOUT",
+      "actor": "knowletive@gmail.com",
+      "timestamp": "2026-10-08T09:46:41.145990Z",
+      "details": "{\"user_id\": 15}"
+    },
+    {
+      "log_id": "0a919b17-4750-4211-a0d6-678fa221b53e",
+      "action": "USER_LOGIN",
+      "actor": "Amin001",
+      "timestamp": "2026-10-08T09:47:06.592742Z",
+      "details": "{\"user_id\": 15, \"role\": \"ADMIN\"}"
+    },
+    {
+      "log_id": "03591449-9db0-4ccc-8528-1527bb6e05e5",
+      "action": "USER_LOGOUT",
+      "actor": "knowletive@gmail.com",
+      "timestamp": "2026-10-08T09:47:11.266705Z",
+      "details": "{\"user_id\": 15}"
+    },
+    {
+      "log_id": "488ea610-1eab-4014-99ca-9d2da53fd4cf",
+      "action": "USER_SIGNUP",
+      "actor": "AMANBENDKULE002",
+      "timestamp": "2026-10-08T09:48:34.096747Z",
+      "details": "{\"user_id\": 16, \"username\": \"AMANBENDKULE002\", \"employee_id\": \"AMANBENDKULE002\", \"role\": \"EMPLOYEE\"}"
+    },
+    {
+      "log_id": "71ae5b36-e22c-4f4a-b7e6-9499c7b293e0",
+      "action": "USER_LOGOUT",
+      "actor": "",
+      "timestamp": "2026-10-08T09:48:38.529422Z",
+      "details": "{\"user_id\": 16}"
+    },
+    {
+      "log_id": "fcbdccda-f6b8-44de-bb82-c481dbf69c59",
+      "action": "USER_LOGIN",
+      "actor": "Amin001",
+      "timestamp": "2026-10-08T09:48:45.377038Z",
+      "details": "{\"user_id\": 15, \"role\": \"ADMIN\"}"
+    },
+    {
+      "log_id": "9f3f7d17-88b9-4e68-a3ab-1e1d0a99c607",
+      "action": "USER_LOGIN",
+      "actor": "AMANBENDKULE002",
+      "timestamp": "2026-10-08T09:50:18.799874Z",
+      "details": "{\"user_id\": 16, \"role\": \"EMPLOYEE\"}"
+    },
+    {
+      "log_id": "070a862d-ae4d-44f4-b0bf-ca2254d63061",
+      "action": "USER_LOGOUT",
+      "actor": "",
+      "timestamp": "2026-10-08T09:50:21.417559Z",
+      "details": "{\"user_id\": 16}"
+    },
+    {
+      "log_id": "2846dcf4-441b-4570-803a-de60ecafa7ab",
+      "action": "USER_LOGIN",
+      "actor": "Amin001",
+      "timestamp": "2026-10-08T09:50:34.206078Z",
+      "details": "{\"user_id\": 15, \"role\": \"ADMIN\"}"
+    },
+    {
+      "log_id": "4ae7a4a4-3733-494e-86bb-ebb6894f04af",
+      "action": "USER_LOGOUT",
+      "actor": "knowletive@gmail.com",
+      "timestamp": "2026-10-08T09:53:43.000213Z",
+      "details": "{\"user_id\": 15}"
+    },
+    {
+      "log_id": "58631408-ddf6-447d-9c39-b786594711e9",
+      "action": "USER_LOGIN",
+      "actor": "AMANBENDKULE002",
+      "timestamp": "2026-10-08T09:53:55.905032Z",
+      "details": "{\"user_id\": 16, \"role\": \"EMPLOYEE\"}"
+    },
+    {
+      "log_id": "8d5e7477-2c64-4945-b860-68cf77dc1090",
+      "action": "USER_LOGOUT",
+      "actor": "",
+      "timestamp": "2026-10-08T09:54:24.473845Z",
+      "details": "{\"user_id\": 16}"
+    },
+    {
+      "log_id": "72f3366a-1ddd-4247-a0d0-03d00b23cf6d",
+      "action": "USER_LOGIN",
+      "actor": "Amin001",
+      "timestamp": "2026-10-08T09:54:31.114456Z",
+      "details": "{\"user_id\": 15, \"role\": \"ADMIN\"}"
+    },
+    {
+      "log_id": "2ad14dec-1748-4e87-93dc-4eb4107a219c",
+      "action": "USER_LOGOUT",
+      "actor": "knowletive@gmail.com",
+      "timestamp": "2026-10-08T09:54:47.213709Z",
+      "details": "{\"user_id\": 15}"
+    },
+    {
+      "log_id": "ab48c9db-d318-4fba-a45a-fb85fc5bdbda",
+      "action": "USER_LOGIN",
+      "actor": "AMANBENDKULE002",
+      "timestamp": "2026-10-08T09:54:56.437346Z",
+      "details": "{\"user_id\": 16, \"role\": \"EMPLOYEE\"}"
+    },
+    {
+      "log_id": "f6586208-9de9-4f14-97c9-0449a3535610",
+      "action": "TIME_EVENT_START_WORK",
+      "actor": "User ID 16",
+      "timestamp": "2026-10-08T09:55:29.557679Z",
+      "details": "{\"event_id\": \"c3b4e94c-bea8-49fa-a76b-d5596871eb95\", \"source\": \"web\", \"timestamp\": \"2026-10-08T09:55:29.554243Z\"}"
+    },
+    {
+      "log_id": "896634a1-58ef-4b40-b842-10ae835f1fae",
+      "action": "TASK_STARTED",
+      "actor": "",
+      "timestamp": "2026-10-08T09:55:29.638724Z",
+      "details": "{\"task_log_id\": \"2e3e11a0-0d06-4299-b59b-b2dbd2b5e4bd\", \"employee_id\": \"AMANBENDKULE002\", \"employee_name\": \"Aman Bendkule\", \"project_name\": \"NR\", \"task_name\": \"WEBSITE DEVELOPMENT\", \"start_time\": \"2026-10-08T09:55:29.613494Z\"}"
+    },
+    {
+      "log_id": "30835d76-a2bb-4cea-abf0-f8282271e719",
+      "action": "TIME_EVENT_START_BREAK",
+      "actor": "User ID 16",
+      "timestamp": "2026-10-08T09:55:45.713707Z",
+      "details": "{\"event_id\": \"5efde3ee-8838-4469-8856-853af560b3f1\", \"source\": \"web\", \"timestamp\": \"2026-10-08T09:55:45.712025Z\"}"
+    },
+    {
+      "log_id": "f97156fe-53cd-4bfc-97f0-dc306743d3a3",
+      "action": "TIME_EVENT_RESUME_WORK",
+      "actor": "User ID 16",
+      "timestamp": "2026-10-08T09:56:03.336787Z",
+      "details": "{\"event_id\": \"4e914196-9fba-41f4-b313-b88a3b66a94c\", \"source\": \"web\", \"timestamp\": \"2026-10-08T09:56:03.335427Z\"}"
+    },
+    {
+      "log_id": "e9abd65c-59e1-4dd3-a982-c1e77b02e41f",
+      "action": "TASK_ENDED",
+      "actor": "",
+      "timestamp": "2026-10-08T09:56:34.782505Z",
+      "details": "{\"task_log_id\": \"2e3e11a0-0d06-4299-b59b-b2dbd2b5e4bd\", \"project_name\": \"NR\", \"task_name\": \"WEBSITE DEVELOPMENT\", \"start_time\": \"2026-10-08T09:55:29.613494Z\", \"end_time\": \"2026-10-08T09:56:34.780974Z\"}"
+    },
+    {
+      "log_id": "bf027eec-0962-4a38-b4ac-56fbdef30024",
+      "action": "TASK_STARTED",
+      "actor": "",
+      "timestamp": "2026-10-08T09:56:34.833389Z",
+      "details": "{\"task_log_id\": \"d78c7740-c1d7-4c90-8644-dee2b3a822ac\", \"employee_id\": \"AMANBENDKULE002\", \"employee_name\": \"Aman Bendkule\", \"project_name\": \"PRR\", \"task_name\": \"WEBSITE\", \"start_time\": \"2026-10-08T09:56:34.817181Z\"}"
+    },
+    {
+      "log_id": "1672e775-00c5-4300-a8d1-84d28142b6e2",
+      "action": "TASK_ENDED",
+      "actor": "",
+      "timestamp": "2026-10-08T09:56:47.353461Z",
+      "details": "{\"task_log_id\": \"d78c7740-c1d7-4c90-8644-dee2b3a822ac\", \"project_name\": \"PRR\", \"task_name\": \"WEBSITE\", \"start_time\": \"2026-10-08T09:56:34.817181Z\", \"end_time\": \"2026-10-08T09:56:47.350815Z\"}"
+    },
+    {
+      "log_id": "6dd1081a-f004-460e-b28a-a6dea310f0bb",
+      "action": "TIME_EVENT_END_WORK",
+      "actor": "User ID 16",
+      "timestamp": "2026-10-08T09:57:08.239632Z",
+      "details": "{\"event_id\": \"9b0b0777-a25c-44fd-b809-7bcc2e9eb804\", \"source\": \"web\", \"timestamp\": \"2026-10-08T09:57:08.237173Z\"}"
+    },
+    {
+      "log_id": "d797b159-59ae-46fa-a3b8-0bea88917e91",
+      "action": "USER_LOGOUT",
+      "actor": "",
+      "timestamp": "2026-10-08T09:57:18.287044Z",
+      "details": "{\"user_id\": 16}"
+    },
+    {
+      "log_id": "7fbe6225-819b-4e7f-98ee-86fbfae9c523",
+      "action": "USER_LOGIN",
+      "actor": "Amin001",
+      "timestamp": "2026-10-08T09:57:25.901095Z",
+      "details": "{\"user_id\": 15, \"role\": \"ADMIN\"}"
+    },
+    {
+      "log_id": "92ed725a-250d-4856-b53d-753321133fd2",
+      "action": "USER_LOGOUT",
+      "actor": "knowletive@gmail.com",
+      "timestamp": "2026-10-08T09:57:41.934137Z",
+      "details": "{\"user_id\": 15}"
+    },
+    {
+      "log_id": "e5cb6334-8ae1-44ba-a625-49fc92720a83",
+      "action": "USER_SIGNUP",
+      "actor": "Ayushkadam",
+      "timestamp": "2026-10-08T10:02:11.824818Z",
+      "details": "{\"user_id\": 17, \"username\": \"Ayushkadam\", \"employee_id\": \"AYUSHKADAM003\", \"role\": \"EMPLOYEE\"}"
+    },
+    {
+      "log_id": "51f632dd-1541-4ed9-a269-19f35c8991f3",
+      "action": "USER_LOGOUT",
+      "actor": "",
+      "timestamp": "2026-10-08T10:02:18.639689Z",
+      "details": "{\"user_id\": 17}"
+    },
+    {
+      "log_id": "4801fcb5-097f-4ae2-808a-562336081f3a",
+      "action": "USER_LOGIN",
+      "actor": "Amin001",
+      "timestamp": "2026-10-08T10:02:25.311162Z",
+      "details": "{\"user_id\": 15, \"role\": \"ADMIN\"}"
+    },
+    {
+      "log_id": "8ae482de-4b5e-4872-90a9-a4ca81141f4e",
+      "action": "USER_LOGOUT",
+      "actor": "knowletive@gmail.com",
+      "timestamp": "2026-10-08T10:02:44.256238Z",
+      "details": "{\"user_id\": 15}"
+    }
+  ],
+  "Settings": {
+    "work_start_time": "10:00",
+    "work_end_time": "19:00",
+    "timezone": "Asia/Kolkata"
+  }
+}

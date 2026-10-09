@@ -1,0 +1,45 @@
+{
+  "TimeEvents": [],
+  "AuditLog": [
+    {
+      "log_id": "8fe80715-4640-476b-b2bd-bd8e44b03513",
+      "action": "CREATE_USER",
+      "actor": "admin@knowletive.com",
+      "timestamp": "2026-10-08T08:19:01.643393Z",
+      "details": "{\"created_user_id\": 3, \"username\": \"alice@knowletive.com\", \"employee_id\": \"ALICE002\", \"role\": \"EMPLOYEE\"}"
+    },
+    {
+      "log_id": "50f62353-0be3-4024-9272-8f11e6a8f83b",
+      "action": "UPDATE_USER",
+      "actor": "admin@knowletive.com",
+      "timestamp": "2026-10-08T08:19:01.647621Z",
+      "details": "{\"updated_user_id\": 3, \"employee_id\": \"ALICE002\", \"email\": \"alice@knowletive.com\", \"role\": \"EMPLOYEE\", \"approval_status\": \"APPROVED\", \"is_active\": true}"
+    },
+    {
+      "log_id": "095be63f-0105-4d73-80e9-c755f2c42ef3",
+      "action": "UPDATE_USER",
+      "actor": "admin@knowletive.com",
+      "timestamp": "2026-10-08T08:19:01.656662Z",
+      "details": "{\"updated_user_id\": 3, \"employee_id\": \"ALICE002\", \"email\": \"alice@knowletive.com\", \"role\": \"EMPLOYEE\", \"approval_status\": \"APPROVED\", \"is_active\": false}"
+    },
+    {
+      "log_id": "7909b4bb-2295-4460-ae96-ecfceb562abf",
+      "action": "USER_LOGIN",
+      "actor": "admin",
+      "timestamp": "2026-10-08T08:21:42.830226Z",
+      "details": "{\"user_id\": 1, \"role\": \"ADMIN\"}"
+    },
+    {
+      "log_id": "a3e85857-010e-41e8-9c14-9a2c72149cbf",
+      "action": "USER_LOGOUT",
+      "actor": "admin@knowletive.com",
+      "timestamp": "2026-10-08T08:30:02.992980Z",
+      "details": "{\"user_id\": 1}"
+    }
+  ],
+  "Settings": {
+    "work_start_time": "10:00",
+    "work_end_time": "19:00",
+    "timezone": "Asia/Kolkata"
+  }
+}

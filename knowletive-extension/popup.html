@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Knowletive Time Tracker</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <div id="auth-view" class="view">
+      <h2>Knowletive Tracker</h2>
+      <p>Please log in to track your time.</p>
+      <form id="login-form">
+        <input type="email" id="email" placeholder="Work Email" required />
+        <input type="password" id="password" placeholder="Password" required />
+        <button type="submit">Log In</button>
+      </form>
+      <div id="login-error" class="error hidden"></div>
+    </div>
+
+    <div id="tracker-view" class="view hidden">
+      <div class="header">
+        <h2 id="user-name">Employee</h2>
+        <button id="logout-btn" class="text-btn">Log Out</button>
+      </div>
+      
+      <div class="status-card">
+        <p class="status-label">Current Status</p>
+        <h1 id="current-status">Not Started</h1>
+        <p class="time-elapsed" id="time-elapsed">0h 0m</p>
+      </div>
+
+      <div class="actions">
+        <button id="start-work-btn" class="btn primary hidden">Start Work</button>
+        <button id="start-break-btn" class="btn secondary hidden">Start Break</button>
+        <button id="resume-work-btn" class="btn primary hidden">Resume Work</button>
+        <button id="end-work-btn" class="btn danger hidden">End Work</button>
+      </div>
+
+      <div id="action-error" class="error hidden"></div>
+
+      <div style="margin-top: 12px;">
+        <a href="http://localhost:5173" target="_blank" class="btn secondary" style="display: block; text-align: center; text-decoration: none; padding: 7px 10px; font-size: 12px; font-weight: 600; border-radius: 8px;">
+          ⏱ Open Task & Project Logger
+        </a>
+      </div>
+      
+      <div class="footer">
+        <a href="http://localhost:5173" target="_blank" class="link">Tracker</a>
+        <span>•</span>
+        <a href="http://localhost:5173" target="_blank" class="link">Task Log</a>
+        <span>•</span>
+        <a href="http://localhost:5173/timesheet" target="_blank" class="link">Timesheet</a>
+      </div>
+      <div style="font-size: 11px; text-align: center; color: #9ca3af; margin-top: 4px;">
+        <span id="sync-status">Last synced: Just now</span>
+      </div>
+    </div>
+  </div>
+  <script src="dist/popup.js"></script>
+</body>
+</html>
