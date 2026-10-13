@@ -6,3 +6,4 @@ dj-database-url
 psycopg[binary]
 openpyxl
 gunicorn
+whitenoise
