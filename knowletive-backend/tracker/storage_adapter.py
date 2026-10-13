@@ -12,6 +12,11 @@ class TimeEventStorage:
     def __init__(self):
         self._lock = threading.RLock()
         self.use_mock = False # Supabase migration complete
+        self.local_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'local_sheets_mock.json')
+
+    def _ensure_mock_file(self):
+        """Backward compatibility for tests and local inspection."""
+        pass
 
     def record_event(self, user_id, event_type, source='web', session_id=None):
         with self._lock:

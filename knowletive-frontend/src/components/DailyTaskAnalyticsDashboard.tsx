@@ -305,13 +305,13 @@ export default function DailyTaskAnalyticsDashboard({
   // If no tasks match current filters
   if (!isLoading && summary.totalTasks === 0) {
     return (
-      <div className="bg-white border border-slate-200 rounded-2xl p-8 sm:p-12 text-center shadow-xs">
-        <div className="w-16 h-16 mx-auto mb-4 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-center justify-center text-indigo-600 shadow-inner">
+      <div className="clay-card p-8 sm:p-12 text-center">
+        <div className="w-16 h-16 mx-auto mb-4 bg-indigo-50 border border-indigo-100/80 rounded-2xl flex items-center justify-center text-indigo-600 shadow-inner">
           <Calendar size={32} />
         </div>
-        <h4 className="text-lg font-bold text-slate-800">No Task Records Found</h4>
-        <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto mt-1.5 leading-relaxed">
-          There are no recorded task sessions matching the selected date (<span className="font-semibold text-slate-700">{formattedDisplayDate}</span>)
+        <h4 className="text-lg font-bold text-slate-900 tracking-tight">No Task Records Found</h4>
+        <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto mt-1.5 leading-relaxed">
+          There are no recorded task sessions matching the selected date (<span className="font-semibold text-slate-900">{formattedDisplayDate}</span>)
           {filterProject ? <span> and project filter "<span className="font-semibold text-indigo-600">{filterProject}</span>"</span> : ''}
           {filterEmpId ? <span> for the selected employee</span> : ''}.
         </p>
@@ -320,7 +320,7 @@ export default function DailyTaskAnalyticsDashboard({
           {hasFilterApplied && (
             <button
               onClick={onClearFilters}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center gap-2 shadow-xs transition"
+              className="clay-btn clay-btn-primary text-xs flex items-center gap-2"
             >
               <RotateCcw size={14} />
               <span>Clear Employee & Project Filters</span>
@@ -328,7 +328,7 @@ export default function DailyTaskAnalyticsDashboard({
           )}
           <button
             onClick={onSetToday}
-            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold flex items-center gap-2 shadow-xs transition"
+            className="clay-btn clay-btn-secondary text-xs flex items-center gap-2"
           >
             <Calendar size={14} />
             <span>Switch to Today</span>
@@ -341,28 +341,28 @@ export default function DailyTaskAnalyticsDashboard({
   return (
     <div className="space-y-6">
       {/* 1. Real-Time Analysis Highlight Banner */}
-      <div className="bg-gradient-to-r from-blue-50/90 via-teal-50/60 to-white border border-blue-100 rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="clay-card bg-gradient-to-r from-indigo-50/80 via-teal-50/50 to-white/95 border-indigo-100/80 p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-start sm:items-center gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-teal-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-600 to-teal-600 text-white flex items-center justify-center shrink-0 shadow-md ring-4 ring-indigo-50">
             <Sparkles size={20} />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-blue-700">Real-Time Analysis</span>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-100/80 text-blue-800">
+              <span className="text-xs font-bold uppercase tracking-wider text-indigo-700">Real-Time Analysis</span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 Live Verified
               </span>
             </div>
-            <p className="text-xs sm:text-sm text-slate-700 mt-0.5">
-              <span className="font-semibold text-slate-900">{summary.employeeCount} team member{summary.employeeCount !== 1 ? 's' : ''}</span> logged{' '}
-              <span className="font-semibold text-slate-900">{summary.totalTasks} task{summary.totalTasks !== 1 ? 's' : ''}</span> across{' '}
-              <span className="font-semibold text-slate-900">{summary.projectCount} project{summary.projectCount !== 1 ? 's' : ''}</span> on{' '}
-              <span className="font-semibold text-blue-900">{formattedDisplayDate}</span> totaling{' '}
-              <span className="font-semibold text-blue-900">{formatHumanReadableDuration(summary.totalSeconds)}</span>.
+            <p className="text-xs sm:text-sm text-slate-700 mt-1 leading-relaxed">
+              <span className="font-bold text-slate-900">{summary.employeeCount} team member{summary.employeeCount !== 1 ? 's' : ''}</span> logged{' '}
+              <span className="font-bold text-slate-900">{summary.totalTasks} task{summary.totalTasks !== 1 ? 's' : ''}</span> across{' '}
+              <span className="font-bold text-slate-900">{summary.projectCount} project{summary.projectCount !== 1 ? 's' : ''}</span> on{' '}
+              <span className="font-bold text-indigo-900">{formattedDisplayDate}</span> totaling{' '}
+              <span className="font-bold text-indigo-900">{formatHumanReadableDuration(summary.totalSeconds)}</span>.
               {topProject && (
                 <span className="hidden sm:inline">
-                  {' '}Primary allocation was on <strong className="text-slate-900 font-semibold">{topProject.name}</strong> ({topProject.formattedDuration}, {topProject.percentage}%).
+                  {' '}Primary allocation was on <strong className="text-slate-900 font-bold">{topProject.name}</strong> ({topProject.formattedDuration}, {topProject.percentage}%).
                 </span>
               )}
             </p>
@@ -375,13 +375,13 @@ export default function DailyTaskAnalyticsDashboard({
             <button
               onClick={onClearFilters}
               title="Clear active filters"
-              className="px-3 py-1.5 text-[11px] font-semibold bg-white hover:bg-slate-50 text-blue-600 border border-blue-200 rounded-lg flex items-center gap-1.5 shadow-2xs transition"
+              className="clay-btn clay-btn-secondary text-[11px] py-1.5 px-3 flex items-center gap-1.5 text-indigo-700"
             >
               <RotateCcw size={12} />
               <span>Reset Filters</span>
             </button>
           )}
-          <div className="px-3 py-1.5 bg-white/90 border border-slate-200 rounded-lg text-[11px] font-mono text-slate-600">
+          <div className="px-3 py-1.5 clay-pill bg-white/90 border-slate-200 text-[11px] font-mono text-slate-700 font-bold">
             {summary.completionRate}% Done
           </div>
         </div>
@@ -390,29 +390,29 @@ export default function DailyTaskAnalyticsDashboard({
       {/* 2. Key Metrics Grid (Totals & Useful Comparisons) */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5 sm:gap-4">
         {/* Metric 1: Total Tracked Time */}
-        <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-blue-300 transition">
+        <div className="clay-card-flat p-4 relative overflow-hidden group hover:border-indigo-300 transition">
           <div className="flex items-center justify-between text-slate-500 mb-1.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Tracked Time</span>
-            <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shadow-2xs">
               <Clock size={15} />
             </div>
           </div>
           <p className="text-2xl font-black text-slate-900 font-mono tracking-tight">
-            <span className="font-black text-slate-900">{formatHumanReadableDuration(summary.totalSeconds)}</span>
+            <span>{formatHumanReadableDuration(summary.totalSeconds)}</span>
           </p>
-          <div className="flex items-center gap-1.5 mt-2 text-[11px] text-slate-600">
-            <span className="font-semibold text-blue-600">Productive Time</span>
+          <div className="flex items-center gap-1.5 mt-2 text-[11px] text-slate-600 font-medium">
+            <span className="font-bold text-indigo-600">Productive Time</span>
             <span className="text-slate-300">•</span>
             <span className="text-slate-500">~{summary.avgTaskMinutes}m / task</span>
           </div>
-          <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-600" />
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-indigo-600" />
         </div>
 
         {/* Metric 2: Employee Tasks */}
-        <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-blue-300 transition">
+        <div className="clay-card-flat p-4 relative overflow-hidden group hover:border-teal-300 transition">
           <div className="flex items-center justify-between text-slate-500 mb-1.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Employee Tasks</span>
-            <div className="w-7 h-7 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center shadow-2xs">
               <ListTodo size={15} />
             </div>
           </div>
@@ -420,32 +420,32 @@ export default function DailyTaskAnalyticsDashboard({
             {summary.totalTasks}
           </p>
           <div className="flex items-center gap-1.5 mt-2 text-[11px]">
-            <span className="text-emerald-700 font-semibold">{summary.completed} Completed</span>
+            <span className="text-emerald-700 font-bold">{summary.completed} Completed</span>
             <span className="text-slate-300">•</span>
-            <span className="text-slate-500">{summary.completionRate}% Rate</span>
+            <span className="text-slate-600 font-medium">{summary.completionRate}% Rate</span>
           </div>
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-teal-500" />
         </div>
 
         {/* Metric 3: In Progress */}
-        <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-amber-300 transition">
+        <div className="clay-card-flat p-4 relative overflow-hidden group hover:border-amber-300 transition">
           <div className="flex items-center justify-between text-slate-500 mb-1.5">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-600">In Progress</span>
-            <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700">In Progress</span>
+            <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shadow-2xs">
               <Activity size={15} />
             </div>
           </div>
           <p className="text-2xl font-black text-amber-600 tracking-tight">
             {summary.inProgress}
           </p>
-          <div className="flex items-center gap-1.5 mt-2 text-[11px] text-slate-500">
+          <div className="flex items-center gap-1.5 mt-2 text-[11px] text-slate-600">
             {summary.inProgress > 0 ? (
-              <span className="text-amber-700 font-semibold flex items-center gap-1">
+              <span className="text-amber-700 font-bold flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
                 Live Running Task
               </span>
             ) : (
-              <span className="text-slate-500 flex items-center gap-1">
+              <span className="text-slate-600 flex items-center gap-1 font-medium">
                 <CheckCircle2 size={12} className="text-emerald-500" />
                 All Sessions Closed
               </span>
@@ -455,19 +455,19 @@ export default function DailyTaskAnalyticsDashboard({
         </div>
 
         {/* Metric 4: Team Contributors */}
-        <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-blue-300 transition">
+        <div className="clay-card-flat p-4 relative overflow-hidden group hover:border-sky-300 transition">
           <div className="flex items-center justify-between text-slate-500 mb-1.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Active Team</span>
-            <div className="w-7 h-7 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center shadow-2xs">
               <Users size={15} />
             </div>
           </div>
           <p className="text-2xl font-black text-slate-900 tracking-tight">
             {summary.employeeCount} <span className="text-sm font-semibold text-slate-500">logged</span>
           </p>
-          <div className="flex items-center gap-1.5 mt-2 text-[11px] text-slate-500 truncate">
+          <div className="flex items-center gap-1.5 mt-2 text-[11px] text-slate-600 truncate">
             {topEmployee ? (
-              <span className="truncate">Top: <strong className="text-slate-800 font-semibold">{topEmployee.employee_name}</strong></span>
+              <span className="truncate">Top: <strong className="text-slate-900 font-bold">{topEmployee.employee_name}</strong></span>
             ) : (
               <span>0 Contributors</span>
             )}
@@ -476,19 +476,19 @@ export default function DailyTaskAnalyticsDashboard({
         </div>
 
         {/* Metric 5: Active Projects */}
-        <div className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-violet-300 transition col-span-2 lg:col-span-1">
+        <div className="clay-card-flat p-4 relative overflow-hidden group hover:border-violet-300 transition col-span-2 lg:col-span-1">
           <div className="flex items-center justify-between text-slate-500 mb-1.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Active Projects</span>
-            <div className="w-7 h-7 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center shadow-2xs">
               <FolderKanban size={15} />
             </div>
           </div>
           <p className="text-2xl font-black text-slate-900 tracking-tight">
             {summary.projectCount} <span className="text-sm font-semibold text-slate-500">projects</span>
           </p>
-          <div className="flex items-center gap-1.5 mt-2 text-[11px] text-slate-500 truncate">
+          <div className="flex items-center gap-1.5 mt-2 text-[11px] text-slate-600 truncate">
             {topProject ? (
-              <span className="truncate">Lead: <strong className="text-slate-800 font-semibold">{topProject.name}</strong></span>
+              <span className="truncate">Lead: <strong className="text-slate-900 font-bold">{topProject.name}</strong></span>
             ) : (
               <span>No projects</span>
             )}
@@ -500,7 +500,7 @@ export default function DailyTaskAnalyticsDashboard({
       {/* 3. Visual Charts Grid: Project Allocation & Employee Workload */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* CHART 1: Project Time Distribution (Donut & Ranked Allocation) - 6 cols */}
-        <div className="lg:col-span-6 bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+        <div className="lg:col-span-6 clay-card p-5 sm:p-6 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -654,7 +654,7 @@ export default function DailyTaskAnalyticsDashboard({
         </div>
 
         {/* CHART 2: Employee Workload & Contribution (Comparative Bar Chart) - 6 cols */}
-        <div className="lg:col-span-6 bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+        <div className="lg:col-span-6 clay-card p-5 sm:p-6 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -664,24 +664,24 @@ export default function DailyTaskAnalyticsDashboard({
                 </h4>
                 <p className="text-xs text-slate-500">Time logged and task throughput per team member</p>
               </div>
-              <span className="px-2.5 py-1 bg-teal-50 border border-teal-100 rounded-lg text-[11px] font-mono font-bold text-teal-700">
+              <span className="px-2.5 py-1 clay-pill bg-teal-50 border-teal-100 text-[11px] font-mono font-bold text-teal-700">
                 {summary.employeeCount} Member{summary.employeeCount !== 1 ? 's' : ''}
               </span>
             </div>
 
-            <div className="space-y-3.5 pt-1">
+            <div className="space-y-3 pt-1">
               {employeeStats.map((emp) => (
                 <div
                   key={emp.user_id}
-                  className="p-3 bg-slate-50/70 border border-slate-200/90 rounded-xl hover:border-blue-300 hover:bg-slate-50 transition"
+                  className="p-3 bg-slate-50/70 border border-slate-200/80 rounded-xl hover:border-indigo-300 hover:bg-slate-50 transition"
                 >
                   <div className="flex items-start justify-between gap-2 mb-1.5">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold text-slate-900 text-xs">
+                        <span className="font-bold text-slate-900 text-xs">
                           {emp.employee_name}
                         </span>
-                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200">
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold text-indigo-700 bg-indigo-50 border border-indigo-200">
                           {emp.employee_id || '-'}
                         </span>
                       </div>
@@ -694,7 +694,7 @@ export default function DailyTaskAnalyticsDashboard({
                       <p className="font-mono text-xs font-bold text-slate-900">
                         {emp.duration_formatted}
                       </p>
-                      <p className="text-[11px] font-mono text-blue-600 font-semibold">
+                      <p className="text-[11px] font-mono text-indigo-600 font-bold">
                         {formatHumanReadableDuration(emp.total_seconds)} ({emp.percentageOfTotal}% share)
                       </p>
                     </div>
@@ -703,16 +703,16 @@ export default function DailyTaskAnalyticsDashboard({
                   {/* Visual Bar relative to maximum employee */}
                   <div className="w-full bg-slate-200/80 rounded-full h-2 overflow-hidden">
                     <div
-                      className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-blue-600 to-teal-500"
+                      className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-indigo-600 to-teal-500"
                       style={{ width: `${Math.max(emp.percentageOfMax, 3)}%` }}
                     />
                   </div>
 
                   <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1.5">
-                    <span className="font-mono text-slate-700">
+                    <span className="font-mono text-slate-700 font-medium">
                       {emp.tasks_count} task{emp.tasks_count !== 1 ? 's' : ''} logged
                     </span>
-                    <span className="text-emerald-700 font-semibold">
+                    <span className="text-emerald-700 font-bold">
                       {(emp.total_seconds / 3600).toFixed(2)}h recorded
                     </span>
                   </div>
@@ -721,19 +721,19 @@ export default function DailyTaskAnalyticsDashboard({
             </div>
           </div>
 
-          <div className="pt-3 mt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+          <div className="pt-3 mt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-medium">
             <span>Bars scaled relative to the highest logged team member</span>
-            <span className="font-mono text-slate-700 font-semibold">Total: {formatHumanReadableDuration(summary.totalSeconds)}</span>
+            <span className="font-mono text-slate-700 font-bold">Total: {formatHumanReadableDuration(summary.totalSeconds)}</span>
           </div>
         </div>
       </div>
 
       {/* 4. CHART 3: Hourly Activity Timeline Distribution (Workday Productivity Trend) */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+      <div className="clay-card p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
           <div>
             <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <TrendingUp size={16} className="text-blue-600" />
+              <TrendingUp size={16} className="text-indigo-600" />
               <span>Workday Hourly Activity Timeline</span>
             </h4>
             <p className="text-xs text-slate-500">
@@ -742,7 +742,7 @@ export default function DailyTaskAnalyticsDashboard({
           </div>
 
           {hourlyActivity.peakHour && (
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-semibold self-start sm:self-auto">
+            <div className="inline-flex items-center gap-2 px-3 py-1 clay-pill bg-amber-50 border-amber-200 text-amber-800 text-xs font-semibold self-start sm:self-auto">
               <span>🔥 Peak Hour:</span>
               <span className="font-mono font-bold">{hourlyActivity.peakHour.label}</span>
               <span className="text-[11px] text-amber-700">

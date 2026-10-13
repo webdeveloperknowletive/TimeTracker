@@ -491,19 +491,23 @@ export default function Admin() {
   const overview = dashboardData?.overview || {};
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-800 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans relative overflow-x-hidden selection:bg-indigo-500 selection:text-white">
+      {/* Ambient background glass glowing orbs */}
+      <div className="fixed top-[-10%] right-[-5%] w-[45vw] h-[45vw] rounded-full bg-gradient-to-br from-indigo-200/35 to-teal-100/30 blur-3xl pointer-events-none z-0" />
+      <div className="fixed bottom-[-10%] left-[-5%] w-[40vw] h-[40vw] rounded-full bg-gradient-to-tr from-sky-200/30 to-purple-100/25 blur-3xl pointer-events-none z-0" />
+
       {/* Admin Navbar */}
-      <header className="bg-white/95 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-40 px-4 sm:px-8 py-3 transition-all shadow-2xs">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
+      <header className="glass-nav sticky top-0 z-40 px-4 sm:px-8 py-3.5 transition-all">
+        <div className="max-w-7xl mx-auto flex items-center justify-between relative z-10">
           {/* Brand & Badge */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-teal-500 flex items-center justify-center text-white shadow-xs ring-4 ring-blue-50">
-              <Shield size={20} className="text-white" />
+            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-600 to-teal-600 flex items-center justify-center text-white shadow-md ring-4 ring-indigo-50">
+              <Shield size={22} className="text-white drop-shadow-sm" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-base text-slate-900 tracking-tight">Knowletive</span>
-                <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/70 font-bold uppercase tracking-wider">
+                <span className="font-extrabold text-lg text-slate-900 tracking-tight">Knowletive</span>
+                <span className="clay-pill bg-indigo-50 text-indigo-700 border-indigo-200/80 text-[10px] font-bold uppercase tracking-wider py-0.5 px-2">
                   Admin Console
                 </span>
               </div>
@@ -512,14 +516,14 @@ export default function Admin() {
           </div>
 
           {/* Quick Actions & Profile */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2.5 sm:gap-3.5">
             {/* User Profile Chip */}
-            <div className="hidden sm:flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200/70">
-              <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center">
+            <div className="hidden sm:flex items-center gap-2.5 px-3.5 py-1.5 rounded-2xl clay-card-flat">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-teal-500 text-white font-bold text-xs flex items-center justify-center shadow-xs">
                 {currentUser?.name ? currentUser.name.charAt(0).toUpperCase() : 'A'}
               </div>
               <div className="text-left">
-                <p className="text-xs font-bold text-slate-800 leading-tight">{currentUser.name || 'Admin'}</p>
+                <p className="text-xs font-bold text-slate-900 leading-tight">{currentUser.name || 'Admin'}</p>
                 <p className="text-[11px] text-slate-500 leading-tight font-mono">{currentUser.email || 'admin@knowletive.com'}</p>
               </div>
             </div>
@@ -531,11 +535,11 @@ export default function Admin() {
                   setShowNotifDropdown(!showNotifDropdown);
                   if (unreadNotifCount > 0) handleMarkNotificationsRead();
                 }}
-                className="relative p-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 shadow-2xs transition"
+                className="relative p-2.5 rounded-2xl clay-card-flat hover:text-slate-900 transition"
                 title="Admin Notifications"
                 aria-label="Admin Notifications"
               >
-                <Bell size={17} />
+                <Bell size={18} />
                 {unreadNotifCount > 0 && (
                   <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-600 text-white text-[10px] font-black flex items-center justify-center ring-2 ring-white animate-pulse">
                     {unreadNotifCount}
@@ -544,16 +548,16 @@ export default function Admin() {
               </button>
 
               {showNotifDropdown && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white border border-slate-200 rounded-2xl shadow-xl p-3 z-50 text-xs">
-                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100">
-                    <span className="font-bold text-slate-900 flex items-center gap-1.5">
-                      <Bell size={14} className="text-blue-600" />
+                <div className="absolute right-0 mt-3 w-80 sm:w-96 clay-card shadow-2xl p-4 z-50 text-xs animate-in fade-in slide-in-from-top-2">
+                  <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-slate-100">
+                    <span className="font-bold text-slate-900 flex items-center gap-1.5 text-sm">
+                      <Bell size={15} className="text-indigo-600" />
                       Notifications
                     </span>
                     {notificationsList.length > 0 && (
                       <button
                         onClick={handleMarkNotificationsRead}
-                        className="text-[11px] text-blue-600 hover:underline font-semibold"
+                        className="text-[11px] text-indigo-600 hover:underline font-bold"
                       >
                         Mark all read
                       </button>
@@ -569,7 +573,7 @@ export default function Admin() {
                           className={`p-3 rounded-xl border transition ${
                             n.is_read
                               ? 'bg-slate-50/70 border-slate-200/60 text-slate-600'
-                              : 'bg-blue-50/60 border-blue-200/80 text-slate-800'
+                              : 'bg-indigo-50/70 border-indigo-200 text-slate-900 shadow-2xs'
                           }`}
                         >
                           <p className="font-bold text-slate-900 text-xs">{n.title}</p>
@@ -586,7 +590,7 @@ export default function Admin() {
             {/* Timesheet Quick Link */}
             <button
               onClick={() => navigate('/timesheet')}
-              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-teal-50/80 hover:bg-teal-100 text-teal-800 border border-teal-200/80 transition shadow-2xs"
+              className="clay-btn clay-btn-secondary text-xs flex items-center gap-1.5 text-teal-800"
             >
               <Calendar size={15} className="text-teal-600" />
               <span className="hidden md:inline">Timesheets</span>
@@ -595,7 +599,7 @@ export default function Admin() {
             {/* Logout */}
             <button
               onClick={handleLogout}
-              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-white hover:bg-rose-50 hover:text-rose-700 text-slate-700 border border-slate-200 hover:border-rose-200 transition shadow-2xs"
+              className="clay-btn text-xs flex items-center gap-1.5 text-rose-700 hover:text-rose-900"
               title="Sign Out"
             >
               <LogOut size={15} />
@@ -606,21 +610,21 @@ export default function Admin() {
       </header>
 
       {/* Main Body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6 relative z-10">
         {/* Copy Feedback Toast */}
         {copyFeedback && (
-          <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-2.5 text-emerald-800 text-xs shadow-xs animate-in fade-in slide-in-from-top-2">
+          <div className="p-3.5 clay-card bg-emerald-50/90 border-emerald-200 flex items-center gap-2.5 text-emerald-900 text-xs shadow-xs animate-in fade-in slide-in-from-top-2">
             <CheckCircle size={16} className="text-emerald-600 shrink-0" />
-            <span className="font-semibold">{copyFeedback}</span>
+            <span className="font-bold">{copyFeedback}</span>
           </div>
         )}
 
         {/* Error Alert */}
         {errorMsg && (
-          <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center justify-between gap-3 text-rose-800 text-sm shadow-xs animate-in fade-in">
+          <div className="p-4 clay-card bg-rose-50/90 border-rose-200 flex items-center justify-between gap-3 text-rose-900 text-sm shadow-xs animate-in fade-in">
             <div className="flex items-center gap-3">
               <AlertTriangle size={18} className="shrink-0 text-rose-600" />
-              <span className="font-medium text-xs sm:text-sm">{errorMsg}</span>
+              <span className="font-semibold text-xs sm:text-sm">{errorMsg}</span>
             </div>
             <button 
               onClick={() => setErrorMsg('')} 
@@ -631,14 +635,14 @@ export default function Admin() {
           </div>
         )}
 
-        {/* Top KPI Cards - Modern Stat Badges */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        {/* Top KPI Cards - Modern Stat Badges with Clay Depth */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4">
           {/* Total Employees */}
-          <div className="bg-white border border-slate-200/80 rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-xs hover:border-blue-200 transition">
+          <div className="clay-card p-4 sm:p-5 hover:border-indigo-200 transition group">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[11px] uppercase font-bold text-slate-500 tracking-wider">Total Staff</span>
-              <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-                <Users size={16} />
+              <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shadow-2xs group-hover:scale-105 transition">
+                <Users size={17} />
               </div>
             </div>
             <p className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">{overview.total_employees ?? '--'}</p>
@@ -646,14 +650,14 @@ export default function Admin() {
           </div>
 
           {/* Active / Working Now */}
-          <div className="bg-white border border-emerald-200/70 rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-xs hover:border-emerald-300 transition">
+          <div className="clay-card p-4 sm:p-5 hover:border-emerald-300 transition group">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="text-[11px] uppercase font-bold text-emerald-700 tracking-wider">Working Now</span>
               </div>
-              <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                <Clock size={16} />
+              <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shadow-2xs group-hover:scale-105 transition">
+                <Clock size={17} />
               </div>
             </div>
             <p className="text-2xl sm:text-3xl font-black text-emerald-700 tracking-tight">{overview.active_now ?? '--'}</p>
@@ -661,11 +665,11 @@ export default function Admin() {
           </div>
 
           {/* Late Starts Today */}
-          <div className="bg-white border border-amber-200/70 rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-xs hover:border-amber-300 transition">
+          <div className="clay-card p-4 sm:p-5 hover:border-amber-300 transition group">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[11px] uppercase font-bold text-amber-700 tracking-wider">Late Today</span>
-              <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-                <AlertTriangle size={16} />
+              <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shadow-2xs group-hover:scale-105 transition">
+                <AlertTriangle size={17} />
               </div>
             </div>
             <p className="text-2xl sm:text-3xl font-black text-amber-600 tracking-tight">{overview.late_today ?? '0'}</p>
@@ -673,11 +677,11 @@ export default function Admin() {
           </div>
 
           {/* Missing Clock-Outs */}
-          <div className="bg-white border border-rose-200/70 rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-xs hover:border-rose-300 transition">
+          <div className="clay-card p-4 sm:p-5 hover:border-rose-300 transition group">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[11px] uppercase font-bold text-rose-700 tracking-wider">Missing Clock-Out</span>
-              <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
-                <Clock size={16} />
+              <div className="w-9 h-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shadow-2xs group-hover:scale-105 transition">
+                <Clock size={17} />
               </div>
             </div>
             <p className="text-2xl sm:text-3xl font-black text-rose-600 tracking-tight">{overview.missing_clockouts ?? '0'}</p>
@@ -686,14 +690,14 @@ export default function Admin() {
         </div>
 
         {/* Clean Segmented Navigation Tabs */}
-        <div className="bg-white p-1.5 rounded-2xl border border-slate-200/80 shadow-xs">
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+        <div className="clay-card-flat p-2 rounded-2xl">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
             <button
               onClick={() => setActiveTab('attendance')}
-              className={`px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
+              className={`clay-pill px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
                 activeTab === 'attendance'
-                  ? 'bg-gradient-to-r from-blue-600 to-teal-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-sm border-transparent'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border-transparent'
               }`}
             >
               <Clock size={16} />
@@ -702,10 +706,10 @@ export default function Admin() {
 
             <button
               onClick={() => setActiveTab('analytics')}
-              className={`px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
+              className={`clay-pill px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
                 activeTab === 'analytics'
-                  ? 'bg-gradient-to-r from-blue-600 to-teal-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-sm border-transparent'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border-transparent'
               }`}
             >
               <TrendingUp size={16} />
@@ -714,10 +718,10 @@ export default function Admin() {
 
             <button
               onClick={() => setActiveTab('tasks')}
-              className={`px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
+              className={`clay-pill px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
                 activeTab === 'tasks'
-                  ? 'bg-gradient-to-r from-blue-600 to-teal-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-sm border-transparent'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border-transparent'
               }`}
             >
               <FolderKanban size={16} />
@@ -726,10 +730,10 @@ export default function Admin() {
 
             <button
               onClick={() => setActiveTab('reports')}
-              className={`px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
+              className={`clay-pill px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
                 activeTab === 'reports'
-                  ? 'bg-gradient-to-r from-blue-600 to-teal-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-sm border-transparent'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border-transparent'
               }`}
             >
               <FileSpreadsheet size={16} />
@@ -738,10 +742,10 @@ export default function Admin() {
 
             <button
               onClick={() => setActiveTab('users')}
-              className={`px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
+              className={`clay-pill px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
                 activeTab === 'users'
-                  ? 'bg-gradient-to-r from-blue-600 to-teal-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-sm border-transparent'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border-transparent'
               }`}
             >
               <Users size={16} />
@@ -755,10 +759,10 @@ export default function Admin() {
 
             <button
               onClick={() => setActiveTab('invitations')}
-              className={`px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
+              className={`clay-pill px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
                 activeTab === 'invitations'
-                  ? 'bg-gradient-to-r from-blue-600 to-teal-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-sm border-transparent'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border-transparent'
               }`}
             >
               <KeyRound size={16} />
@@ -767,10 +771,10 @@ export default function Admin() {
 
             <button
               onClick={() => setActiveTab('settings')}
-              className={`px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
+              className={`clay-pill px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
                 activeTab === 'settings'
-                  ? 'bg-gradient-to-r from-blue-600 to-teal-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-sm border-transparent'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border-transparent'
               }`}
             >
               <SettingsIcon size={16} />
@@ -781,17 +785,17 @@ export default function Admin() {
 
         {/* TAB 1: LIVE ATTENDANCE (EMPLOYEES ONLY) */}
         {activeTab === 'attendance' && (
-          <div className="bg-white border border-slate-200/80 rounded-3xl p-5 sm:p-7 shadow-xs space-y-6">
+          <div className="clay-card p-5 sm:p-7 space-y-6">
             {/* Tab Header with Title & Action */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h3 className="text-lg font-bold text-slate-900">Today's Employee Attendance</h3>
-                <p className="text-xs text-slate-500 font-medium">Real-time work sessions, shift progress, and clock events for staff</p>
+                <h3 className="text-lg font-bold text-slate-900 tracking-tight">Today's Employee Attendance</h3>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">Real-time work sessions, shift progress, and clock events for staff</p>
               </div>
               <div className="flex items-center gap-2 self-start sm:self-auto">
                 <button
                   onClick={() => setShowCorrectionModal(true)}
-                  className="px-3.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 rounded-xl text-xs font-bold flex items-center gap-2 transition shadow-2xs"
+                  className="clay-btn clay-btn-secondary text-xs flex items-center gap-2 text-indigo-700"
                 >
                   <Edit2 size={14} />
                   <span>Time Correction</span>
@@ -799,7 +803,7 @@ export default function Admin() {
                 <button
                   onClick={loadAllAdminData}
                   disabled={loading}
-                  className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition"
+                  className="clay-btn p-2 text-slate-700"
                   title="Refresh attendance"
                 >
                   <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
@@ -816,7 +820,7 @@ export default function Admin() {
                   placeholder="Search by name, email, or employee ID..."
                   value={attendanceSearch}
                   onChange={(e) => setAttendanceSearch(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                  className="clay-input w-full pl-9 text-xs"
                 />
               </div>
 
@@ -824,7 +828,7 @@ export default function Admin() {
                 <select
                   value={attendanceDeptFilter}
                   onChange={(e) => setAttendanceDeptFilter(e.target.value)}
-                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                  className="clay-input text-xs"
                 >
                   <option value="">All Departments</option>
                   {departmentOptions.map(dept => (
@@ -835,7 +839,7 @@ export default function Admin() {
                 <select
                   value={attendanceStatusFilter}
                   onChange={(e) => setAttendanceStatusFilter(e.target.value)}
-                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                  className="clay-input text-xs"
                 >
                   <option value="ALL">All Statuses</option>
                   <option value="WORKING">Working</option>
@@ -851,7 +855,7 @@ export default function Admin() {
                       setAttendanceDeptFilter('');
                       setAttendanceStatusFilter('ALL');
                     }}
-                    className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition"
+                    className="clay-btn p-2 text-slate-400 hover:text-slate-700"
                     title="Clear filters"
                   >
                     <X size={15} />
@@ -861,41 +865,41 @@ export default function Admin() {
             </div>
 
             {/* Attendance Table */}
-            <div className="overflow-x-auto rounded-2xl border border-slate-200/80">
+            <div className="clay-card-flat overflow-hidden">
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-slate-500 text-[11px] uppercase tracking-wider bg-slate-50/80 font-bold">
-                    <th className="py-3 px-3.5">Emp ID</th>
-                    <th className="py-3 px-3.5">Employee</th>
-                    <th className="py-3 px-3.5">Department</th>
-                    <th className="py-3 px-3.5">Status</th>
-                    <th className="py-3 px-3.5">Clock-In (IST)</th>
-                    <th className="py-3 px-3.5">Clock-Out (IST)</th>
-                    <th className="py-3 px-3.5 text-right">Work Time</th>
-                    <th className="py-3 px-3.5 text-right">Break Time</th>
+                  <tr className="border-b border-slate-200/80 text-slate-600 text-[11px] uppercase tracking-wider bg-slate-50/90 font-bold">
+                    <th className="py-3.5 px-4">Emp ID</th>
+                    <th className="py-3.5 px-4">Employee</th>
+                    <th className="py-3.5 px-4">Department</th>
+                    <th className="py-3.5 px-4">Status</th>
+                    <th className="py-3.5 px-4">Clock-In (IST)</th>
+                    <th className="py-3.5 px-4">Clock-Out (IST)</th>
+                    <th className="py-3.5 px-4 text-right">Work Time</th>
+                    <th className="py-3.5 px-4 text-right">Break Time</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredAttendanceUsers.map((u: any) => (
-                    <tr key={u.id} className="hover:bg-slate-50/80 transition text-xs">
-                      <td className="py-3 px-3.5">
-                        <span className="font-mono text-xs font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200/80">
+                    <tr key={u.id} className="hover:bg-indigo-50/20 transition text-xs">
+                      <td className="py-3.5 px-4">
+                        <span className="clay-pill font-mono text-xs font-bold text-indigo-700 bg-indigo-50/90 px-2 py-0.5 border-indigo-200/80">
                           {u.employee_id || '-'}
                         </span>
                       </td>
-                      <td className="py-3 px-3.5">
+                      <td className="py-3.5 px-4">
                         <p className="font-bold text-slate-900 text-xs sm:text-sm">{u.name}</p>
                         <p className="text-[11px] text-slate-500 font-mono">{u.email}</p>
                       </td>
-                      <td className="py-3 px-3.5 text-slate-600 font-medium">
+                      <td className="py-3.5 px-4 text-slate-600 font-medium">
                         {u.department || 'General'}
                       </td>
-                      <td className="py-3 px-3.5">
+                      <td className="py-3.5 px-4">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold flex items-center gap-1.5 ${
-                            u.status === 'Working' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                            u.status === 'On Break' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                            u.status === 'Ended' ? 'bg-slate-100 text-slate-700 border border-slate-200' :
+                          <span className={`clay-pill px-2.5 py-0.5 text-[11px] font-bold flex items-center gap-1.5 ${
+                            u.status === 'Working' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                            u.status === 'On Break' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                            u.status === 'Ended' ? 'bg-slate-100 text-slate-700 border-slate-200' :
                             'bg-slate-100 text-slate-600'
                           }`}>
                             {u.status === 'Working' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
@@ -903,37 +907,37 @@ export default function Admin() {
                             {u.status || 'Not Started'}
                           </span>
                           {u.is_late_start && (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                            <span className="clay-pill px-2 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 border-amber-200">
                               Late Start
                             </span>
                           )}
                           {u.is_missing_clockout && (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                            <span className="clay-pill px-2 py-0.5 text-[10px] font-bold bg-rose-100 text-rose-800 border-rose-200">
                               Missing Out
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="py-3 px-3.5 font-mono text-slate-700 font-medium">
+                      <td className="py-3.5 px-4 font-mono text-slate-700 font-medium">
                         {u.start_time ? new Date(u.start_time).toLocaleTimeString() : '--:--'}
                       </td>
-                      <td className="py-3 px-3.5 font-mono text-slate-700 font-medium">
+                      <td className="py-3.5 px-4 font-mono text-slate-700 font-medium">
                         {u.end_time ? new Date(u.end_time).toLocaleTimeString() : '--:--'}
                       </td>
-                      <td className="py-3 px-3.5 font-mono text-emerald-700 text-right font-bold">
+                      <td className="py-3.5 px-4 font-mono text-emerald-700 text-right font-bold">
                         {formatHumanReadableDuration(u.total_work_seconds || 0)}
                       </td>
-                      <td className="py-3 px-3.5 font-mono text-amber-700 text-right font-bold">
+                      <td className="py-3.5 px-4 font-mono text-amber-700 text-right font-bold">
                         {formatHumanReadableDuration(u.total_break_seconds || 0)}
                       </td>
                     </tr>
                   ))}
                   {filteredAttendanceUsers.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="py-10 text-center text-slate-400">
-                        <Users size={28} className="mx-auto mb-2 text-slate-300" />
-                        <p className="font-semibold text-slate-600">No employee attendance matches your search.</p>
-                        <p className="text-xs text-slate-400 mt-0.5">Try clearing your filters or check back later.</p>
+                      <td colSpan={8} className="py-12 text-center text-slate-400">
+                        <Users size={32} className="mx-auto mb-2 text-slate-300" />
+                        <p className="font-bold text-slate-700 text-sm">No employee attendance matches your search.</p>
+                        <p className="text-xs text-slate-400 mt-1">Try clearing your filters or check back later.</p>
                       </td>
                     </tr>
                   )}
@@ -946,25 +950,25 @@ export default function Admin() {
         {/* TAB 2: DAILY TIME-WISE TASK REPORTS (EMPLOYEES ONLY) */}
         {activeTab === 'tasks' && (
           <div className="space-y-6">
-            <div className="bg-white border border-slate-200/80 rounded-3xl p-5 sm:p-7 shadow-xs space-y-6">
+            <div className="clay-card p-5 sm:p-7 space-y-6">
               {/* Header with Title & Export Actions */}
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <h3 className="text-lg font-bold text-slate-900">Daily Employee Task Reports</h3>
-                  <p className="text-xs text-slate-500 font-medium">Track recorded work sessions, project activities, and duration logs</p>
+                  <h3 className="text-lg font-bold text-slate-900 tracking-tight">Daily Employee Task Reports</h3>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">Track recorded work sessions, project activities, and duration logs</p>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => handleExportTasks('csv')}
-                    className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 flex items-center gap-1.5 transition shadow-2xs"
+                    className="clay-btn clay-btn-secondary text-xs flex items-center gap-1.5"
                   >
                     <Download size={14} />
                     <span>Export CSV</span>
                   </button>
                   <button
                     onClick={() => handleExportTasks('xlsx')}
-                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition"
+                    className="clay-btn clay-btn-success text-xs flex items-center gap-1.5"
                   >
                     <Download size={14} />
                     <span>Export Excel (.xlsx)</span>
@@ -973,23 +977,23 @@ export default function Admin() {
               </div>
 
               {/* Filters Bar: Date, Employee, Project */}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200/80">
+              <div className="clay-inset-well p-4 rounded-2xl grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1.5">Date (IST)</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Date (IST)</label>
                   <input
                     type="date"
                     value={taskReportDate}
                     onChange={(e) => setTaskReportDate(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 font-mono focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                    className="clay-input w-full text-xs font-mono"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1.5">Filter Employee</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Filter Employee</label>
                   <select
                     value={taskFilterEmpId}
                     onChange={(e) => setTaskFilterEmpId(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                    className="clay-input w-full text-xs"
                   >
                     <option value="">All Employees</option>
                     {employeeOnlyList.map((u) => (
@@ -1001,16 +1005,16 @@ export default function Admin() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1.5">Filter Project</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">Filter Project</label>
                   <div className="relative">
                     <input
                       type="text"
                       placeholder="e.g. Website Redesign"
                       value={taskFilterProject}
                       onChange={(e) => setTaskFilterProject(e.target.value)}
-                      className="w-full pl-8 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                      className="clay-input w-full pl-8 text-xs"
                     />
-                    <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+                    <Search size={14} className="absolute left-2.5 top-3 text-slate-400" />
                   </div>
                 </div>
 
@@ -1018,7 +1022,7 @@ export default function Admin() {
                   <button
                     onClick={() => loadTaskReport()}
                     disabled={loadingTaskReport}
-                    className="w-full py-2 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 flex items-center justify-center gap-2 transition shadow-2xs"
+                    className="clay-btn clay-btn-secondary w-full py-2.5 text-xs flex items-center justify-center gap-2"
                   >
                     <RefreshCw size={14} className={loadingTaskReport ? 'animate-spin' : ''} />
                     <span>{loadingTaskReport ? 'Loading...' : 'Refresh Report'}</span>
@@ -1048,9 +1052,9 @@ export default function Admin() {
                   {/* Grouped Aggregates */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                     {/* 1. Time per Employee */}
-                    <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-4">
+                    <div className="clay-card-flat p-4 sm:p-5">
                       <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-2">
-                        <Users size={15} className="text-blue-600" />
+                        <Users size={15} className="text-indigo-600" />
                         <span>Total Time per Employee</span>
                       </h4>
                       {taskReportData.by_employee?.length === 0 ? (
@@ -1059,7 +1063,7 @@ export default function Admin() {
                         <div className="overflow-x-auto">
                           <table className="w-full text-left text-xs">
                             <thead>
-                              <tr className="border-b border-slate-200 text-slate-500 uppercase font-semibold">
+                              <tr className="border-b border-slate-200/80 text-slate-500 uppercase font-bold text-[11px]">
                                 <th className="pb-2">Emp ID</th>
                                 <th className="pb-2">Employee</th>
                                 <th className="pb-2">Dept</th>
@@ -1067,14 +1071,14 @@ export default function Admin() {
                                 <th className="pb-2 text-right">Total Duration</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-200/60">
+                            <tbody className="divide-y divide-slate-100">
                               {taskReportData.by_employee?.map((be: any, idx: number) => (
-                                <tr key={idx}>
-                                  <td className="py-2 font-mono text-xs font-bold text-blue-700">{be.employee_id || '-'}</td>
-                                  <td className="py-2 font-semibold text-slate-800">{be.employee_name}</td>
-                                  <td className="py-2 text-slate-500">{be.department || '-'}</td>
-                                  <td className="py-2 text-center text-slate-700 font-mono">{be.tasks_count}</td>
-                                  <td className="py-2 text-right font-mono font-bold text-blue-600">
+                                <tr key={idx} className="hover:bg-indigo-50/20 transition">
+                                  <td className="py-2.5 font-mono text-xs font-bold text-indigo-700">{be.employee_id || '-'}</td>
+                                  <td className="py-2.5 font-bold text-slate-900">{be.employee_name}</td>
+                                  <td className="py-2.5 text-slate-500">{be.department || '-'}</td>
+                                  <td className="py-2.5 text-center text-slate-700 font-mono font-bold">{be.tasks_count}</td>
+                                  <td className="py-2.5 text-right font-mono font-bold text-indigo-600">
                                     {formatHumanReadableDuration(be.total_seconds || Math.round(be.total_hours * 3600))}
                                   </td>
                                 </tr>
@@ -1086,7 +1090,7 @@ export default function Admin() {
                     </div>
 
                     {/* 2. Grouped by Project & Employee */}
-                    <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-4">
+                    <div className="clay-card-flat p-4 sm:p-5">
                       <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-2">
                         <FolderKanban size={15} className="text-teal-600" />
                         <span>Total Time Grouped by Project & Employee</span>
@@ -1097,24 +1101,24 @@ export default function Admin() {
                         <div className="overflow-x-auto">
                           <table className="w-full text-left text-xs">
                             <thead>
-                              <tr className="border-b border-slate-200 text-slate-500 uppercase font-semibold">
+                              <tr className="border-b border-slate-200/80 text-slate-500 uppercase font-bold text-[11px]">
                                 <th className="pb-2">Project</th>
                                 <th className="pb-2">Employee</th>
                                 <th className="pb-2 text-center">Tasks</th>
                                 <th className="pb-2 text-right">Total Duration</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-200/60">
+                            <tbody className="divide-y divide-slate-100">
                               {taskReportData.by_project_and_employee?.map((pe: any, idx: number) => (
-                                <tr key={idx}>
-                                  <td className="py-2 font-semibold text-slate-800">
-                                    <span className="px-2 py-0.5 rounded-md bg-teal-50 text-teal-700 border border-teal-200/70">
+                                <tr key={idx} className="hover:bg-indigo-50/20 transition">
+                                  <td className="py-2.5 font-semibold text-slate-900">
+                                    <span className="clay-pill px-2 py-0.5 text-[11px] font-bold bg-teal-50 text-teal-700 border-teal-200">
                                       {pe.project_name}
                                     </span>
                                   </td>
-                                  <td className="py-2 text-slate-700">{pe.employee_name}</td>
-                                  <td className="py-2 text-center text-slate-700 font-mono">{pe.tasks_count}</td>
-                                  <td className="py-2 text-right font-mono font-bold text-emerald-600">
+                                  <td className="py-2.5 text-slate-700 font-medium">{pe.employee_name}</td>
+                                  <td className="py-2.5 text-center text-slate-700 font-mono font-bold">{pe.tasks_count}</td>
+                                  <td className="py-2.5 text-right font-mono font-bold text-emerald-600">
                                     {pe.duration_formatted}
                                   </td>
                                 </tr>
@@ -1129,61 +1133,61 @@ export default function Admin() {
                   {/* Detailed Employee Task Log Table */}
                   <div className="space-y-3">
                     <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                      <ListTodo size={15} className="text-blue-600" />
+                      <ListTodo size={15} className="text-indigo-600" />
                       <span>Detailed Employee Task Log</span>
                     </h4>
-                    <div className="overflow-x-auto rounded-2xl border border-slate-200/80">
+                    <div className="clay-card-flat overflow-hidden">
                       <table className="w-full text-left text-sm">
                         <thead>
-                          <tr className="border-b border-slate-200 text-slate-500 text-[11px] uppercase tracking-wider bg-slate-50/80 font-bold">
-                            <th className="py-3 px-3">Sr.</th>
-                            <th className="py-3 px-3">Emp ID</th>
-                            <th className="py-3 px-3">Employee</th>
-                            <th className="py-3 px-3">Project</th>
-                            <th className="py-3 px-3">Task Name</th>
-                            <th className="py-3 px-3">Description</th>
-                            <th className="py-3 px-3">Start (IST)</th>
-                            <th className="py-3 px-3">End (IST)</th>
-                            <th className="py-3 px-3 text-right">Duration</th>
-                            <th className="py-3 px-3 text-center">Status</th>
+                          <tr className="border-b border-slate-200/80 text-slate-600 text-[11px] uppercase tracking-wider bg-slate-50/90 font-bold">
+                            <th className="py-3 px-3.5">Sr.</th>
+                            <th className="py-3 px-3.5">Emp ID</th>
+                            <th className="py-3 px-3.5">Employee</th>
+                            <th className="py-3 px-3.5">Project</th>
+                            <th className="py-3 px-3.5">Task Name</th>
+                            <th className="py-3 px-3.5">Description</th>
+                            <th className="py-3 px-3.5">Start (IST)</th>
+                            <th className="py-3 px-3.5">End (IST)</th>
+                            <th className="py-3 px-3.5 text-right">Duration</th>
+                            <th className="py-3 px-3.5 text-center">Status</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {taskReportData.tasks?.map((t: any) => (
-                            <tr key={t.task_log_id} className="hover:bg-slate-50/80 transition text-xs">
-                              <td className="py-3 px-3 text-slate-400 font-mono">{t.sr_no}</td>
-                              <td className="py-3 px-3 font-mono font-bold text-blue-700">
+                            <tr key={t.task_log_id} className="hover:bg-indigo-50/20 transition text-xs">
+                              <td className="py-3 px-3.5 text-slate-400 font-mono">{t.sr_no}</td>
+                              <td className="py-3 px-3.5 font-mono font-bold text-indigo-700">
                                 {t.employee_id || '-'}
                               </td>
-                              <td className="py-3 px-3">
+                              <td className="py-3 px-3.5">
                                 <p className="font-bold text-slate-900">{t.employee_name}</p>
                                 <span className="text-[10px] text-slate-400">{t.department}</span>
                               </td>
-                              <td className="py-3 px-3">
-                                <span className="px-2 py-0.5 rounded-md bg-blue-50 border border-blue-200/70 text-blue-700 font-semibold">
+                              <td className="py-3 px-3.5">
+                                <span className="clay-pill px-2 py-0.5 text-[11px] font-semibold bg-indigo-50/80 border-indigo-200/70 text-indigo-700">
                                   {t.project_name}
                                 </span>
                               </td>
-                              <td className="py-3 px-3 font-bold text-slate-900">{t.task_name}</td>
-                              <td className="py-3 px-3 text-slate-500 max-w-xs truncate" title={t.description}>
+                              <td className="py-3 px-3.5 font-bold text-slate-900">{t.task_name}</td>
+                              <td className="py-3 px-3.5 text-slate-600 max-w-xs truncate" title={t.description}>
                                 {t.description || '-'}
                               </td>
-                              <td className="py-3 px-3 font-mono text-slate-600 whitespace-nowrap">{t.start_time}</td>
-                              <td className="py-3 px-3 font-mono text-slate-600 whitespace-nowrap">
+                              <td className="py-3 px-3.5 font-mono text-slate-600 whitespace-nowrap">{t.start_time}</td>
+                              <td className="py-3 px-3.5 font-mono text-slate-600 whitespace-nowrap">
                                 {t.end_time === 'In progress' ? (
                                   <span className="text-amber-700 font-bold italic">In Progress</span>
                                 ) : (
                                   t.end_time
                                 )}
                               </td>
-                              <td className="py-3 px-3 font-mono text-blue-600 font-bold text-right whitespace-nowrap">
+                              <td className="py-3 px-3.5 font-mono text-indigo-600 font-bold text-right whitespace-nowrap">
                                 {t.duration_formatted}
                               </td>
-                              <td className="py-3 px-3 text-center whitespace-nowrap">
-                                <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                              <td className="py-3 px-3.5 text-center whitespace-nowrap">
+                                <span className={`clay-pill px-2.5 py-0.5 text-[11px] font-bold ${
                                   t.status === 'IN_PROGRESS'
-                                    ? 'bg-amber-50 text-amber-800 border border-amber-200'
-                                    : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                    ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                    : 'bg-emerald-50 text-emerald-800 border-emerald-200'
                                 }`}>
                                   {t.status === 'IN_PROGRESS' ? 'In Progress' : 'Completed'}
                                 </span>
@@ -1212,24 +1216,24 @@ export default function Admin() {
 
         {/* TAB 4: REPORTS & EXPORTS (EMPLOYEES ONLY) */}
         {activeTab === 'reports' && (
-          <div className="bg-white border border-slate-200/80 rounded-3xl p-5 sm:p-7 shadow-xs space-y-6">
+          <div className="clay-card p-5 sm:p-7 space-y-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <h3 className="text-lg font-bold text-slate-900">Attendance & Task Reports</h3>
-                <p className="text-xs text-slate-500 font-medium">Generate verified payroll and attendance records for all staff (IST)</p>
+                <h3 className="text-lg font-bold text-slate-900 tracking-tight">Attendance & Task Reports</h3>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">Generate verified payroll and attendance records for all staff (IST)</p>
               </div>
 
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => handleExport('csv')}
-                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 flex items-center gap-1.5 transition shadow-2xs"
+                  className="clay-btn clay-btn-secondary text-xs flex items-center gap-1.5"
                 >
                   <Download size={14} />
                   <span>Export CSV</span>
                 </button>
                 <button
                   onClick={() => handleExport('xlsx')}
-                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition"
+                  className="clay-btn clay-btn-success text-xs flex items-center gap-1.5"
                 >
                   <FileSpreadsheet size={14} />
                   <span>Export Excel (.xlsx)</span>
@@ -1238,46 +1242,46 @@ export default function Admin() {
             </div>
 
             {/* Summary KPI Cards matching screen and export */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-              <div className="bg-blue-50/70 border border-blue-100 p-4 rounded-2xl">
-                <p className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">Filtered Records</p>
-                <p className="text-2xl font-black text-blue-950 mt-1">{reportsSummary?.total_records ?? reports.length}</p>
-                <p className="text-[11px] text-blue-600/80 mt-0.5">Workdays in current report view</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 sm:gap-4">
+              <div className="clay-card-flat p-4 sm:p-5 border-indigo-100">
+                <p className="text-[11px] font-bold text-indigo-700 uppercase tracking-wider">Filtered Records</p>
+                <p className="text-2xl font-black text-slate-900 mt-1">{reportsSummary?.total_records ?? reports.length}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Workdays in current report view</p>
               </div>
-              <div className="bg-emerald-50/70 border border-emerald-100 p-4 rounded-2xl">
+              <div className="clay-card-flat p-4 sm:p-5 border-emerald-100">
                 <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">Total Work Duration</p>
-                <p className="text-2xl font-black text-emerald-950 mt-1">
+                <p className="text-2xl font-black text-slate-900 mt-1 font-mono">
                   {formatHumanReadableDuration(reportsSummary?.total_work_seconds || 0)}
                 </p>
-                <p className="text-[11px] text-emerald-600/80 mt-0.5">Sum of all tracked active work</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Sum of all tracked active work</p>
               </div>
-              <div className="bg-amber-50/70 border border-amber-100 p-4 rounded-2xl">
+              <div className="clay-card-flat p-4 sm:p-5 border-amber-100">
                 <p className="text-[11px] font-bold text-amber-700 uppercase tracking-wider">Total Break Duration</p>
-                <p className="text-2xl font-black text-amber-950 mt-1">
+                <p className="text-2xl font-black text-slate-900 mt-1 font-mono">
                   {formatHumanReadableDuration(reportsSummary?.total_break_seconds || 0)}
                 </p>
-                <p className="text-[11px] text-amber-600/80 mt-0.5">Sum of all logged pause intervals</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Sum of all logged pause intervals</p>
               </div>
             </div>
 
             {/* Filter Bar */}
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-3.5">
+            <div className="clay-inset-well p-4 rounded-2xl space-y-3.5">
               <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-slate-200/80">
                 <div className="flex items-center gap-2">
-                  <Filter size={14} className="text-blue-600" />
+                  <Filter size={14} className="text-indigo-600" />
                   <span className="text-xs font-bold text-slate-700">Filter Period:</span>
                   <div className="inline-flex rounded-xl bg-slate-200/70 p-0.5 text-xs">
                     <button
                       type="button"
                       onClick={() => setReportDateMode('range')}
-                      className={`px-3 py-1 rounded-lg font-bold transition ${reportDateMode === 'range' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
+                      className={`px-3 py-1 rounded-lg font-bold transition ${reportDateMode === 'range' ? 'bg-white text-indigo-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
                     >
                       Date Range
                     </button>
                     <button
                       type="button"
                       onClick={() => setReportDateMode('month')}
-                      className={`px-3 py-1 rounded-lg font-bold transition ${reportDateMode === 'month' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
+                      className={`px-3 py-1 rounded-lg font-bold transition ${reportDateMode === 'month' ? 'bg-white text-indigo-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'}`}
                     >
                       Specific Month
                     </button>
@@ -1295,7 +1299,7 @@ export default function Admin() {
                     setReportFilterTask('');
                     setReportDateMode('range');
                   }}
-                  className="text-xs font-bold text-blue-600 hover:text-blue-800 underline"
+                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 underline"
                 >
                   Clear All Filters
                 </button>
@@ -1305,32 +1309,32 @@ export default function Admin() {
                 {reportDateMode === 'range' ? (
                   <>
                     <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">Start Date</label>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Start Date</label>
                       <input
                         type="date"
                         value={startDate}
                         onChange={(e) => setStartDate(e.target.value)}
-                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                        className="clay-input w-full text-xs font-mono"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">End Date</label>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">End Date</label>
                       <input
                         type="date"
                         value={endDate}
                         onChange={(e) => setEndDate(e.target.value)}
-                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                        className="clay-input w-full text-xs font-mono"
                       />
                     </div>
                   </>
                 ) : (
                   <>
                     <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">Month</label>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Month</label>
                       <select
                         value={reportMonth}
                         onChange={(e) => setReportMonth(e.target.value)}
-                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                        className="clay-input w-full text-xs"
                       >
                         <option value="1">January</option>
                         <option value="2">February</option>
@@ -1347,23 +1351,23 @@ export default function Admin() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">Year</label>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Year</label>
                       <input
                         type="number"
                         value={reportYear}
                         onChange={(e) => setReportYear(e.target.value)}
-                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                        className="clay-input w-full text-xs font-mono"
                       />
                     </div>
                   </>
                 )}
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Employee</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Employee</label>
                   <select
                     value={filterEmpId}
                     onChange={(e) => setFilterEmpId(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                    className="clay-input w-full text-xs"
                   >
                     <option value="">All Employees</option>
                     {employeeOnlyList.map((u) => (
@@ -1373,94 +1377,94 @@ export default function Admin() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Department</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Department</label>
                   <input
                     type="text"
                     placeholder="e.g. Engineering"
                     value={filterDept}
                     onChange={(e) => setFilterDept(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                    className="clay-input w-full text-xs"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Project</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Project</label>
                   <input
                     type="text"
                     placeholder="Filter project..."
                     value={reportFilterProject}
                     onChange={(e) => setReportFilterProject(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                    className="clay-input w-full text-xs"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Task</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Task</label>
                   <input
                     type="text"
                     placeholder="Filter task..."
                     value={reportFilterTask}
                     onChange={(e) => setReportFilterTask(e.target.value)}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                    className="clay-input w-full text-xs"
                   />
                 </div>
               </div>
             </div>
 
             {/* Reports Table */}
-            <div className="overflow-x-auto rounded-2xl border border-slate-200/80">
+            <div className="clay-card-flat overflow-hidden">
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-slate-500 text-[11px] uppercase tracking-wider bg-slate-50/80 font-bold">
-                    <th className="py-3 px-3">Date (IST)</th>
-                    <th className="py-3 px-3">Emp ID</th>
-                    <th className="py-3 px-3">Employee</th>
-                    <th className="py-3 px-3">Project</th>
-                    <th className="py-3 px-3">Task Name</th>
-                    <th className="py-3 px-3">Description</th>
-                    <th className="py-3 px-3">Status</th>
-                    <th className="py-3 px-3">Start Time</th>
-                    <th className="py-3 px-3">End Time</th>
-                    <th className="py-3 px-3 text-right">Work Time</th>
-                    <th className="py-3 px-3 text-right">Break Time</th>
-                    <th className="py-3 px-3 text-right">Total Daily Time</th>
+                  <tr className="border-b border-slate-200/80 text-slate-600 text-[11px] uppercase tracking-wider bg-slate-50/90 font-bold">
+                    <th className="py-3 px-3.5">Date (IST)</th>
+                    <th className="py-3 px-3.5">Emp ID</th>
+                    <th className="py-3 px-3.5">Employee</th>
+                    <th className="py-3 px-3.5">Project</th>
+                    <th className="py-3 px-3.5">Task Name</th>
+                    <th className="py-3 px-3.5">Description</th>
+                    <th className="py-3 px-3.5">Status</th>
+                    <th className="py-3 px-3.5">Start Time</th>
+                    <th className="py-3 px-3.5">End Time</th>
+                    <th className="py-3 px-3.5 text-right">Work Time</th>
+                    <th className="py-3 px-3.5 text-right">Break Time</th>
+                    <th className="py-3 px-3.5 text-right">Total Daily Time</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {reports.length === 0 ? (
                     <tr>
-                      <td colSpan={12} className="py-10 text-center text-slate-400">
-                        <FileSpreadsheet size={28} className="mx-auto mb-2 text-slate-300" />
-                        <p className="font-semibold text-slate-600">No report entries found for the selected period.</p>
+                      <td colSpan={12} className="py-12 text-center text-slate-400">
+                        <FileSpreadsheet size={32} className="mx-auto mb-2 text-slate-300" />
+                        <p className="font-bold text-slate-700 text-sm">No report entries found for the selected period.</p>
                       </td>
                     </tr>
                   ) : (
                     <>
                       {reports.map((r, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/80 transition text-xs">
-                          <td className="py-3 px-3 text-slate-700 font-medium whitespace-nowrap">{r.date}</td>
-                          <td className="py-3 px-3 font-mono font-bold text-blue-700 whitespace-nowrap">
+                        <tr key={idx} className="hover:bg-indigo-50/20 transition text-xs">
+                          <td className="py-3.5 px-3.5 text-slate-700 font-medium whitespace-nowrap">{r.date}</td>
+                          <td className="py-3.5 px-3.5 font-mono font-bold text-indigo-700 whitespace-nowrap">
                             {r.employee_id || '-'}
                           </td>
-                          <td className="py-3 px-3">
+                          <td className="py-3.5 px-3.5">
                             <p className="text-slate-900 font-bold">{r.employee_name}</p>
                             <span className="text-[10px] text-slate-400">{r.department}</span>
                           </td>
-                          <td className="py-3 px-3">
+                          <td className="py-3.5 px-3.5">
                             {r.project && r.project !== '-' ? (
-                              <span className="px-2 py-0.5 rounded-md bg-blue-50 border border-blue-200/70 text-blue-700 font-semibold">
+                              <span className="clay-pill px-2 py-0.5 text-[11px] font-semibold bg-indigo-50/80 border-indigo-200/70 text-indigo-700">
                                 {r.project}
                               </span>
                             ) : (
                               <span className="text-slate-400">-</span>
                             )}
                           </td>
-                          <td className="py-3 px-3 text-slate-800 font-medium">{r.task || '-'}</td>
-                          <td className="py-3 px-3 text-slate-500 max-w-xs truncate" title={r.description}>
+                          <td className="py-3.5 px-3.5 text-slate-800 font-bold">{r.task || '-'}</td>
+                          <td className="py-3.5 px-3.5 text-slate-600 max-w-xs truncate" title={r.description}>
                             {r.description || '-'}
                           </td>
-                          <td className="py-3 px-3 whitespace-nowrap">
-                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                          <td className="py-3.5 px-3.5 whitespace-nowrap">
+                            <span className={`clay-pill px-2 py-0.5 text-[11px] font-bold ${
                               r.status === 'Working' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' :
                               r.status === 'On Break' ? 'bg-amber-50 text-amber-800 border border-amber-200' :
                               r.status === 'Ended' ? 'bg-slate-100 text-slate-700 border border-slate-200' :
@@ -1469,30 +1473,30 @@ export default function Admin() {
                               {r.status}
                             </span>
                           </td>
-                          <td className="py-3 px-3 font-mono text-slate-600 whitespace-nowrap">{r.start_time}</td>
-                          <td className="py-3 px-3 font-mono text-slate-600 whitespace-nowrap">{r.end_time}</td>
-                          <td className="py-3 px-3 font-mono text-emerald-700 text-right font-bold whitespace-nowrap">
+                          <td className="py-3.5 px-3.5 font-mono text-slate-600 whitespace-nowrap">{r.start_time}</td>
+                          <td className="py-3.5 px-3.5 font-mono text-slate-600 whitespace-nowrap">{r.end_time}</td>
+                          <td className="py-3.5 px-3.5 font-mono text-emerald-700 text-right font-bold whitespace-nowrap">
                             {formatHumanReadableDuration(r.total_work_seconds || Math.round(r.work_hours * 3600))}
                           </td>
-                          <td className="py-3 px-3 font-mono text-amber-700 text-right font-bold whitespace-nowrap">
+                          <td className="py-3.5 px-3.5 font-mono text-amber-700 text-right font-bold whitespace-nowrap">
                             {formatHumanReadableDuration(r.total_break_seconds || Math.round(r.break_hours * 3600))}
                           </td>
-                          <td className="py-3 px-3 font-mono text-blue-700 text-right font-bold whitespace-nowrap">
+                          <td className="py-3.5 px-3.5 font-mono text-indigo-700 text-right font-bold whitespace-nowrap">
                             {r.total_daily_duration || '-'}
                           </td>
                         </tr>
                       ))}
                       <tr className="bg-slate-50/90 font-bold border-t-2 border-slate-200 text-xs">
-                        <td colSpan={9} className="py-3.5 px-3 text-slate-800 uppercase tracking-wider text-right">
+                        <td colSpan={9} className="py-4 px-3.5 text-slate-800 uppercase tracking-wider text-right">
                           Report Totals:
                         </td>
-                        <td className="py-3.5 px-3 font-mono text-emerald-700 text-right font-black whitespace-nowrap">
+                        <td className="py-4 px-3.5 font-mono text-emerald-700 text-right font-black whitespace-nowrap">
                           {formatHumanReadableDuration(reportsSummary?.total_work_seconds || 0)}
                         </td>
-                        <td className="py-3.5 px-3 font-mono text-amber-700 text-right font-black whitespace-nowrap">
+                        <td className="py-4 px-3.5 font-mono text-amber-700 text-right font-black whitespace-nowrap">
                           {formatHumanReadableDuration(reportsSummary?.total_break_seconds || 0)}
                         </td>
-                        <td className="py-3.5 px-3 font-mono text-blue-700 text-right font-black whitespace-nowrap">
+                        <td className="py-4 px-3.5 font-mono text-indigo-700 text-right font-black whitespace-nowrap">
                           {reportsSummary?.total_daily_duration || '-'}
                         </td>
                       </tr>
@@ -1509,35 +1513,35 @@ export default function Admin() {
           <div className="space-y-6">
             {/* Pending Approvals Section */}
             {pendingUsers.length > 0 && (
-              <div className="bg-amber-50/80 border border-amber-200 rounded-3xl p-5 sm:p-7 shadow-xs space-y-4">
+              <div className="clay-card border-amber-200/90 bg-amber-50/70 p-5 sm:p-7 space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
-                    <div className="p-2 bg-amber-100 rounded-xl text-amber-800">
+                    <div className="p-2.5 bg-amber-100 rounded-xl text-amber-800 shadow-2xs">
                       <UserCheck size={18} />
                     </div>
                     <div>
-                      <h3 className="text-base font-bold text-amber-950">
+                      <h3 className="text-base font-bold text-amber-950 tracking-tight">
                         Pending Registrations ({pendingUsers.length})
                       </h3>
-                      <p className="text-xs text-amber-700 font-medium">Review and verify new employee accounts</p>
+                      <p className="text-xs text-amber-700 font-medium mt-0.5">Review and verify new employee accounts</p>
                     </div>
                   </div>
-                  <span className="text-xs text-amber-800 bg-amber-100 px-3 py-1 rounded-full font-bold border border-amber-200">
+                  <span className="clay-pill text-xs text-amber-900 bg-amber-100 px-3 py-1 font-bold border-amber-200">
                     Awaiting Approval
                   </span>
                 </div>
 
-                <div className="overflow-x-auto rounded-2xl border border-amber-200/70 bg-white">
+                <div className="clay-card-flat overflow-hidden bg-white/90">
                   <table className="w-full text-left text-sm">
                     <thead>
-                      <tr className="border-b border-amber-100 text-amber-900 text-[11px] uppercase tracking-wider bg-amber-50/60 font-bold">
+                      <tr className="border-b border-amber-100 text-amber-900 text-[11px] uppercase tracking-wider bg-amber-50/80 font-bold">
                         <th className="py-3 px-3.5">Employee</th>
                         <th className="py-3 px-3.5">Email</th>
                         <th className="py-3 px-3.5">Registered</th>
                         <th className="py-3 px-3.5 text-right">Decision</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-amber-100">
+                    <tbody className="divide-y divide-amber-100/60">
                       {pendingUsers.map((u) => (
                         <tr key={u.id} className="hover:bg-amber-50/40 transition text-xs">
                           <td className="py-3 px-3.5 font-bold text-slate-900">{u.name}</td>
@@ -1549,14 +1553,14 @@ export default function Admin() {
                             <div className="flex items-center justify-end gap-2">
                               <button
                                 onClick={() => handleApproveUser(u.id)}
-                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition"
+                                className="clay-btn clay-btn-success text-xs py-1.5 px-3 flex items-center gap-1.5"
                               >
                                 <UserCheck size={14} />
                                 <span>Approve</span>
                               </button>
                               <button
                                 onClick={() => handleRejectUser(u.id)}
-                                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition"
+                                className="clay-btn clay-btn-danger text-xs py-1.5 px-3 flex items-center gap-1.5"
                               >
                                 <UserX size={14} />
                                 <span>Reject</span>
@@ -1572,11 +1576,11 @@ export default function Admin() {
             )}
 
             {/* Main User Roster */}
-            <div className="bg-white border border-slate-200/80 rounded-3xl p-5 sm:p-7 shadow-xs space-y-6">
+            <div className="clay-card p-5 sm:p-7 space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <h3 className="text-lg font-bold text-slate-900">User Management</h3>
-                  <p className="text-xs text-slate-500 font-medium">Manage all employee and administrator credentials and permissions</p>
+                  <h3 className="text-lg font-bold text-slate-900 tracking-tight">User Management</h3>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">Manage all employee and administrator credentials and permissions</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -1585,7 +1589,7 @@ export default function Admin() {
                       setUserFormData({ username: '', first_name: '', last_name: '', email: '', department: '', role: 'EMPLOYEE', password: '' });
                       setShowAddUserModal(true);
                     }}
-                    className="px-4 py-2 bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-2xs transition"
+                    className="clay-btn clay-btn-primary text-xs flex items-center gap-2"
                   >
                     <Plus size={16} />
                     <span>Add User</span>
@@ -1601,14 +1605,14 @@ export default function Admin() {
                   placeholder="Search users by name, email, department, or employee ID..."
                   value={userSearchQuery}
                   onChange={(e) => setUserSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                  className="clay-input w-full pl-9 text-xs"
                 />
               </div>
 
-              <div className="overflow-x-auto rounded-2xl border border-slate-200/80">
+              <div className="clay-card-flat overflow-hidden">
                 <table className="w-full text-left text-sm">
                   <thead>
-                    <tr className="border-b border-slate-200 text-slate-500 text-[11px] uppercase tracking-wider bg-slate-50/80 font-bold">
+                    <tr className="border-b border-slate-200/80 text-slate-600 text-[11px] uppercase tracking-wider bg-slate-50/90 font-bold">
                       <th className="py-3 px-3.5">Emp ID</th>
                       <th className="py-3 px-3.5">Name & Email</th>
                       <th className="py-3 px-3.5">Department</th>
@@ -1620,10 +1624,10 @@ export default function Admin() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredUsersList.map((u) => (
-                      <tr key={u.id} className="hover:bg-slate-50/80 transition text-xs">
+                      <tr key={u.id} className="hover:bg-indigo-50/20 transition text-xs">
                         <td className="py-3.5 px-3.5">
                           {u.employee_id ? (
-                            <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200/70">
+                            <span className="clay-pill font-mono text-xs font-bold px-2 py-0.5 bg-indigo-50 text-indigo-700 border-indigo-200/70">
                               {u.employee_id}
                             </span>
                           ) : (
@@ -1636,26 +1640,26 @@ export default function Admin() {
                         </td>
                         <td className="py-3.5 px-3.5 text-slate-600 font-medium">{u.department || 'Unassigned'}</td>
                         <td className="py-3.5 px-3.5">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-                            u.role === 'ADMIN' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-slate-100 text-slate-700'
+                          <span className={`clay-pill px-2.5 py-0.5 text-[11px] font-bold ${
+                            u.role === 'ADMIN' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-slate-100 text-slate-700'
                           }`}>
                             {u.role}
                           </span>
                         </td>
                         <td className="py-3.5 px-3.5">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                          <span className={`clay-pill px-2.5 py-0.5 text-[11px] font-bold ${
                             u.approval_status === 'APPROVED'
-                              ? 'bg-emerald-50 text-emerald-700'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                               : u.approval_status === 'PENDING'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-rose-50 text-rose-700'
+                              ? 'bg-amber-100 text-amber-800 border-amber-200'
+                              : 'bg-rose-50 text-rose-700 border-rose-200'
                           }`}>
                             {u.approval_status || 'APPROVED'}
                           </span>
                         </td>
                         <td className="py-3.5 px-3.5">
-                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                            u.is_active ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                          <span className={`clay-pill px-2 py-0.5 text-[11px] font-bold ${
+                            u.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'
                           }`}>
                             {u.is_active ? 'Active' : 'Deactivated'}
                           </span>
@@ -1666,14 +1670,14 @@ export default function Admin() {
                               <>
                                 <button
                                   onClick={() => handleApproveUser(u.id)}
-                                  className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition"
+                                  className="clay-btn clay-btn-success text-xs py-1 px-2.5"
                                   title="Approve registration"
                                 >
                                   Approve
                                 </button>
                                 <button
                                   onClick={() => handleRejectUser(u.id)}
-                                  className="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition"
+                                  className="clay-btn clay-btn-danger text-xs py-1 px-2.5"
                                   title="Reject registration"
                                 >
                                   Reject
@@ -1694,7 +1698,7 @@ export default function Admin() {
                                 });
                                 setShowAddUserModal(true);
                               }}
-                              className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition"
+                              className="clay-btn p-1.5 text-slate-700 hover:text-indigo-600"
                               title="Edit user"
                             >
                               <Edit2 size={13} />
@@ -1702,10 +1706,10 @@ export default function Admin() {
                             {u.role !== 'ADMIN' && (
                               <button
                                 onClick={() => handleToggleUserActive(u)}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition ${
+                                className={`clay-pill px-2.5 py-1 text-xs font-bold transition cursor-pointer ${
                                   u.is_active
-                                    ? 'bg-rose-50 text-rose-700 hover:bg-rose-100'
-                                    : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                    ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                                    : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
                                 }`}
                               >
                                 {u.is_active ? 'Deactivate' : 'Reactivate'}
@@ -1724,11 +1728,13 @@ export default function Admin() {
 
         {/* TAB 6: INVITATIONS */}
         {activeTab === 'invitations' && (
-          <div className="bg-white border border-slate-200/80 rounded-3xl p-5 sm:p-7 shadow-xs space-y-6">
+          <div className="clay-card p-5 sm:p-7 space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                  <KeyRound size={20} className="text-blue-600" />
+                  <div className="w-8 h-8 rounded-xl clay-inset-well flex items-center justify-center text-blue-600">
+                    <KeyRound size={17} />
+                  </div>
                   <span>Company Invitations & Onboarding</span>
                 </h3>
                 <p className="text-xs text-slate-500 font-medium mt-1">
@@ -1740,7 +1746,7 @@ export default function Admin() {
                   setCreatedInviteResult(null);
                   setShowCreateInviteModal(true);
                 }}
-                className="px-4 py-2 bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-2xs transition self-start sm:self-auto"
+                className="clay-btn clay-btn-primary px-4 py-2 text-xs font-bold flex items-center gap-2 self-start sm:self-auto"
               >
                 <Plus size={16} />
                 <span>Generate Invitation</span>
@@ -1749,31 +1755,31 @@ export default function Admin() {
 
             {/* Newly Created Invitation Banner */}
             {createdInviteResult && (
-              <div className="p-5 bg-blue-50/80 border border-blue-200 rounded-2xl space-y-3">
+              <div className="p-5 clay-inset-well border border-blue-200/70 rounded-2xl space-y-3 bg-blue-50/50 backdrop-blur-xs">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold uppercase tracking-wider text-blue-900 flex items-center gap-1.5">
                     <CheckCircle2 size={16} className="text-emerald-600" />
                     Invitation Code Generated Successfully
                   </span>
-                  <button onClick={() => setCreatedInviteResult(null)} className="text-slate-500 hover:text-slate-800 text-xs font-bold">
+                  <button onClick={() => setCreatedInviteResult(null)} className="text-slate-500 hover:text-slate-800 text-xs font-bold transition">
                     Dismiss
                   </button>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                  <div className="bg-white p-3.5 rounded-xl border border-blue-100 flex items-center justify-between shadow-2xs">
+                  <div className="clay-card-flat p-3.5 rounded-xl flex items-center justify-between">
                     <div>
                       <p className="text-[11px] text-slate-500 uppercase font-bold">Invitation Code</p>
                       <p className="font-mono text-sm font-black text-slate-900 mt-0.5">{createdInviteResult.code}</p>
                     </div>
                     <button
                       onClick={() => copyToClipboard(createdInviteResult.code, 'Invitation Code')}
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold flex items-center gap-1 transition"
+                      className="clay-btn clay-btn-primary px-3 py-1.5 text-xs font-bold flex items-center gap-1"
                     >
                       <Copy size={13} />
                       <span>Copy Code</span>
                     </button>
                   </div>
-                  <div className="bg-white p-3.5 rounded-xl border border-blue-100 flex items-center justify-between shadow-2xs">
+                  <div className="clay-card-flat p-3.5 rounded-xl flex items-center justify-between">
                     <div className="truncate mr-2">
                       <p className="text-[11px] text-slate-500 uppercase font-bold">Registration Link</p>
                       <p className="font-mono text-xs text-slate-600 mt-0.5 truncate">
@@ -1782,7 +1788,7 @@ export default function Admin() {
                     </div>
                     <button
                       onClick={() => copyToClipboard(`${window.location.origin}/signup?code=${createdInviteResult.code}`, 'Invitation Link')}
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold flex items-center gap-1 shrink-0 transition"
+                      className="clay-btn clay-btn-primary px-3 py-1.5 text-xs font-bold flex items-center gap-1 shrink-0"
                     >
                       <Link2 size={13} />
                       <span>Copy Link</span>
@@ -1793,10 +1799,10 @@ export default function Admin() {
             )}
 
             {/* Invitations Table */}
-            <div className="overflow-x-auto rounded-2xl border border-slate-200/80">
+            <div className="clay-card-flat overflow-x-auto rounded-2xl border border-slate-200/70">
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-slate-500 text-[11px] uppercase tracking-wider bg-slate-50/80 font-bold">
+                  <tr className="border-b border-slate-200/80 text-slate-500 text-[11px] uppercase tracking-wider bg-slate-100/70 font-bold">
                     <th className="py-3 px-3.5">Code</th>
                     <th className="py-3 px-3.5">Recipient Restriction</th>
                     <th className="py-3 px-3.5">Status</th>
@@ -1806,7 +1812,7 @@ export default function Admin() {
                     <th className="py-3 px-3.5 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100/80">
                   {invitationsList.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="py-10 text-center text-slate-400 text-xs">
@@ -1817,9 +1823,9 @@ export default function Admin() {
                     </tr>
                   ) : (
                     invitationsList.map((inv) => (
-                      <tr key={inv.id} className="hover:bg-slate-50/80 transition text-xs">
+                      <tr key={inv.id} className="hover:bg-white/60 transition text-xs">
                         <td className="py-3.5 px-3.5 font-mono font-bold text-slate-900">
-                          <span className="px-2 py-1 bg-slate-100 rounded-md border border-slate-200">
+                          <span className="px-2 py-1 clay-inset-well rounded-md text-slate-800">
                             {inv.code}
                           </span>
                         </td>
@@ -1831,14 +1837,14 @@ export default function Admin() {
                           )}
                         </td>
                         <td className="py-3.5 px-3.5">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                          <span className={`clay-pill text-[11px] font-bold ${
                             inv.status === 'Active'
-                              ? 'bg-emerald-50 text-emerald-700'
+                              ? 'bg-emerald-50/90 text-emerald-700 border-emerald-200/80'
                               : inv.status === 'Used'
-                              ? 'bg-blue-50 text-blue-700'
+                              ? 'bg-blue-50/90 text-blue-700 border-blue-200/80'
                               : inv.status === 'Expired'
-                              ? 'bg-amber-50 text-amber-700'
-                              : 'bg-rose-50 text-rose-700'
+                              ? 'bg-amber-50/90 text-amber-700 border-amber-200/80'
+                              : 'bg-rose-50/90 text-rose-700 border-rose-200/80'
                           }`}>
                             {inv.status}
                           </span>
@@ -1859,14 +1865,14 @@ export default function Admin() {
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               onClick={() => copyToClipboard(inv.code, 'Invitation Code')}
-                              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition"
+                              className="clay-btn clay-btn-secondary p-1.5 text-slate-700"
                               title="Copy Code"
                             >
                               <Copy size={13} />
                             </button>
                             <button
                               onClick={() => copyToClipboard(`${window.location.origin}/signup?code=${inv.code}`, 'Invitation Link')}
-                              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition"
+                              className="clay-btn clay-btn-secondary p-1.5 text-slate-700"
                               title="Copy Link"
                             >
                               <Link2 size={13} />
@@ -1874,7 +1880,7 @@ export default function Admin() {
                             {inv.status === 'Active' && (
                               <button
                                 onClick={() => handleRevokeInvitation(inv.id)}
-                                className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold transition"
+                                className="clay-btn clay-btn-danger px-2.5 py-1 text-xs font-bold"
                                 title="Revoke Invitation"
                               >
                                 Revoke
@@ -1893,18 +1899,20 @@ export default function Admin() {
 
         {/* TAB 7: SCHEDULE SETTINGS */}
         {activeTab === 'settings' && (
-          <div className="bg-white border border-slate-200/80 rounded-3xl p-6 sm:p-8 shadow-xs max-w-xl">
+          <div className="clay-card p-6 sm:p-8 max-w-xl">
             <div className="flex items-center gap-3 mb-2">
-              <div className="p-2.5 rounded-2xl bg-blue-50 text-blue-700 border border-blue-100">
+              <div className="w-11 h-11 rounded-2xl clay-inset-well flex items-center justify-center text-blue-600">
                 <SettingsIcon size={20} />
               </div>
-              <h3 className="text-lg font-bold text-slate-900">Workday Schedule Settings</h3>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Workday Schedule Settings</h3>
+                <p className="text-xs text-slate-500 font-medium">
+                  Configure daily business hours to compute employee late starts and punctuality metrics.
+                </p>
+              </div>
             </div>
-            <p className="text-xs text-slate-500 font-medium mb-6">
-              Configure daily business hours to compute employee late starts and punctuality metrics.
-            </p>
 
-            <form onSubmit={handleSaveSettings} className="space-y-4">
+            <form onSubmit={handleSaveSettings} className="space-y-4 mt-6">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">
                   Office Start Time (IST)
@@ -1913,7 +1921,7 @@ export default function Admin() {
                   type="time"
                   value={settingsForm.work_start_time}
                   onChange={(e) => setSettingsForm({ ...settingsForm, work_start_time: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono transition"
+                  className="clay-input w-full font-mono text-sm"
                 />
               </div>
 
@@ -1925,7 +1933,7 @@ export default function Admin() {
                   type="time"
                   value={settingsForm.work_end_time}
                   onChange={(e) => setSettingsForm({ ...settingsForm, work_end_time: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono transition"
+                  className="clay-input w-full font-mono text-sm"
                 />
               </div>
 
@@ -1937,13 +1945,13 @@ export default function Admin() {
                   type="text"
                   disabled
                   value={settingsForm.timezone}
-                  className="w-full px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-slate-500 text-sm cursor-not-allowed font-mono"
+                  className="clay-input w-full bg-slate-100/70 text-slate-500 cursor-not-allowed font-mono text-sm"
                 />
               </div>
 
               <button
                 type="submit"
-                className="mt-4 px-6 py-2.5 bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white font-bold rounded-xl text-sm transition shadow-2xs"
+                className="mt-4 clay-btn clay-btn-primary px-6 py-2.5 text-sm font-bold"
               >
                 Save Schedule Settings
               </button>
@@ -1954,27 +1962,27 @@ export default function Admin() {
 
       {/* ADD / EDIT USER MODAL */}
       {showAddUserModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl">
+        <div className="clay-modal-overlay">
+          <div className="clay-modal-dialog max-w-md w-full p-6 sm:p-8">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-slate-900">
                 {editUserData ? 'Edit User Details' : 'Add New User'}
               </h3>
               <button
                 onClick={() => setShowAddUserModal(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+                className="clay-btn clay-btn-secondary p-1.5 text-slate-400 hover:text-slate-700"
               >
                 <X size={18} />
               </button>
             </div>
 
             {editUserData && editUserData.employee_id && (
-              <div className="mb-3.5 p-3 bg-blue-50/70 border border-blue-100 rounded-xl flex items-center justify-between text-xs">
+              <div className="mb-4 p-3.5 clay-inset-well rounded-xl flex items-center justify-between text-xs">
                 <div>
                   <span className="text-slate-700 font-bold">Permanent Employee ID</span>
                   <p className="text-[11px] text-slate-500">Immutable across attendance logs</p>
                 </div>
-                <span className="font-mono text-xs font-bold px-2.5 py-1 rounded bg-white text-blue-700 border border-blue-200 shadow-2xs">
+                <span className="clay-pill font-mono text-xs font-bold bg-blue-50/90 text-blue-700 border-blue-200">
                   {editUserData.employee_id}
                 </span>
               </div>
@@ -1990,10 +1998,11 @@ export default function Admin() {
                     value={userFormData.username || ''}
                     onChange={(e) => setUserFormData({ ...userFormData, username: e.target.value })}
                     required
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                    className="clay-input w-full text-xs"
                   />
                 </div>
               )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">First Name</label>
@@ -2002,7 +2011,7 @@ export default function Admin() {
                     value={userFormData.first_name}
                     onChange={(e) => setUserFormData({ ...userFormData, first_name: e.target.value })}
                     required
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                    className="clay-input w-full text-xs"
                   />
                 </div>
                 <div>
@@ -2012,7 +2021,7 @@ export default function Admin() {
                     value={userFormData.last_name}
                     onChange={(e) => setUserFormData({ ...userFormData, last_name: e.target.value })}
                     required
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                    className="clay-input w-full text-xs"
                   />
                 </div>
               </div>
@@ -2025,7 +2034,7 @@ export default function Admin() {
                   value={userFormData.email}
                   onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
                   required
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                  className="clay-input w-full text-xs"
                 />
               </div>
 
@@ -2036,7 +2045,7 @@ export default function Admin() {
                   placeholder="e.g. Design, Engineering"
                   value={userFormData.department}
                   onChange={(e) => setUserFormData({ ...userFormData, department: e.target.value })}
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                  className="clay-input w-full text-xs"
                 />
               </div>
 
@@ -2046,7 +2055,7 @@ export default function Admin() {
                   <select
                     value={userFormData.role}
                     onChange={(e) => setUserFormData({ ...userFormData, role: e.target.value })}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                    className="clay-input w-full text-xs"
                   >
                     <option value="EMPLOYEE">Employee</option>
                     <option value="ADMIN">Admin</option>
@@ -2062,22 +2071,22 @@ export default function Admin() {
                     value={userFormData.password}
                     onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
                     required={!editUserData}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                    className="clay-input w-full text-xs"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200/60">
                 <button
                   type="button"
                   onClick={() => setShowAddUserModal(false)}
-                  className="px-4 py-2 border border-slate-200 text-slate-700 hover:bg-slate-100 rounded-xl text-xs font-bold transition"
+                  className="clay-btn clay-btn-secondary px-4 py-2 text-xs font-bold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white rounded-xl text-xs font-bold transition shadow-2xs"
+                  className="clay-btn clay-btn-primary px-4 py-2 text-xs font-bold"
                 >
                   Save User
                 </button>
@@ -2089,13 +2098,13 @@ export default function Admin() {
 
       {/* ADMIN TIME CORRECTION MODAL */}
       {showCorrectionModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl">
+        <div className="clay-modal-overlay">
+          <div className="clay-modal-dialog max-w-md w-full p-6 sm:p-8">
             <div className="flex items-center justify-between mb-1">
               <h3 className="text-lg font-bold text-slate-900">Employee Time Correction</h3>
               <button
                 onClick={() => setShowCorrectionModal(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+                className="clay-btn clay-btn-secondary p-1.5 text-slate-400 hover:text-slate-700"
               >
                 <X size={18} />
               </button>
@@ -2113,7 +2122,7 @@ export default function Admin() {
                   value={correctionForm.event_id}
                   onChange={(e) => setCorrectionForm({ ...correctionForm, event_id: e.target.value })}
                   required
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 font-mono focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                  className="clay-input w-full text-xs font-mono"
                 />
               </div>
 
@@ -2123,7 +2132,7 @@ export default function Admin() {
                   <select
                     value={correctionForm.new_event_type}
                     onChange={(e) => setCorrectionForm({ ...correctionForm, new_event_type: e.target.value })}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                    className="clay-input w-full text-xs"
                   >
                     <option value="START_WORK">START_WORK</option>
                     <option value="START_BREAK">START_BREAK</option>
@@ -2138,7 +2147,7 @@ export default function Admin() {
                     type="datetime-local"
                     value={correctionForm.new_timestamp}
                     onChange={(e) => setCorrectionForm({ ...correctionForm, new_timestamp: e.target.value })}
-                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                    className="clay-input w-full text-xs"
                   />
                 </div>
               </div>
@@ -2153,7 +2162,7 @@ export default function Admin() {
                   onChange={(e) => setCorrectionForm({ ...correctionForm, reason: e.target.value })}
                   required
                   rows={3}
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition"
+                  className="clay-input w-full text-xs"
                 />
               </div>
 
@@ -2161,13 +2170,13 @@ export default function Admin() {
                 <button
                   type="button"
                   onClick={() => setShowCorrectionModal(false)}
-                  className="px-4 py-2 border border-slate-200 text-slate-700 hover:bg-slate-100 rounded-xl text-xs font-bold transition"
+                  className="clay-btn clay-btn-secondary px-4 py-2 text-xs font-bold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-2xs transition"
+                  className="clay-btn clay-btn-danger px-4 py-2 text-xs font-bold"
                 >
                   Apply Correction
                 </button>
@@ -2179,18 +2188,18 @@ export default function Admin() {
 
       {/* GENERATE INVITATION MODAL */}
       {showCreateInviteModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl">
+        <div className="clay-modal-overlay">
+          <div className="clay-modal-dialog max-w-md w-full p-6 sm:p-8">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-blue-50 text-blue-700 border border-blue-100">
-                  <KeyRound size={20} />
+                <div className="w-9 h-9 rounded-xl clay-inset-well flex items-center justify-center text-blue-600">
+                  <KeyRound size={18} />
                 </div>
                 <h3 className="text-lg font-bold text-slate-900">Generate Invitation</h3>
               </div>
               <button
                 onClick={() => setShowCreateInviteModal(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition"
+                className="clay-btn clay-btn-secondary p-1.5 text-slate-400 hover:text-slate-700"
               >
                 <X size={18} />
               </button>
@@ -2209,7 +2218,7 @@ export default function Admin() {
                   placeholder="employee@knowletive.com"
                   value={inviteFormData.recipient_email}
                   onChange={(e) => setInviteFormData({ ...inviteFormData, recipient_email: e.target.value })}
-                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                  className="clay-input w-full text-xs placeholder-slate-400"
                 />
                 <p className="text-[11px] text-slate-500 mt-1">If specified, only this email address can redeem the code.</p>
               </div>
@@ -2222,7 +2231,7 @@ export default function Admin() {
                   <select
                     value={inviteFormData.days_valid}
                     onChange={(e) => setInviteFormData({ ...inviteFormData, days_valid: Number(e.target.value) })}
-                    className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                    className="clay-input w-full text-xs"
                   >
                     <option value={1}>1 Day</option>
                     <option value={3}>3 Days</option>
@@ -2242,7 +2251,7 @@ export default function Admin() {
                     placeholder="Auto-generate"
                     value={inviteFormData.code}
                     onChange={(e) => setInviteFormData({ ...inviteFormData, code: e.target.value.toUpperCase() })}
-                    className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 font-mono uppercase focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                    className="clay-input w-full text-xs placeholder-slate-400 font-mono uppercase"
                   />
                 </div>
               </div>
@@ -2256,21 +2265,21 @@ export default function Admin() {
                   placeholder="e.g. For Q4 engineering hires"
                   value={inviteFormData.notes}
                   onChange={(e) => setInviteFormData({ ...inviteFormData, notes: e.target.value })}
-                  className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                  className="clay-input w-full text-xs placeholder-slate-400"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200/60">
                 <button
                   type="button"
                   onClick={() => setShowCreateInviteModal(false)}
-                  className="px-4 py-2 border border-slate-200 text-slate-700 hover:bg-slate-100 rounded-xl text-xs font-bold transition"
+                  className="clay-btn clay-btn-secondary px-4 py-2 text-xs font-bold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white rounded-xl text-xs font-bold transition shadow-2xs"
+                  className="clay-btn clay-btn-primary px-4 py-2 text-xs font-bold"
                 >
                   Generate Invitation
                 </button>

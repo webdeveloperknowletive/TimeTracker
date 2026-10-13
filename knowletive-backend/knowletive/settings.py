@@ -10,20 +10,32 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+import os
+import sys
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load .env file if present
+_env_path = BASE_DIR / '.env'
+if _env_path.exists():
+    with open(_env_path, 'r', encoding='utf-8') as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith('#') and '=' in _line:
+                _k, _v = _line.split('=', 1)
+                os.environ.setdefault(_k.strip(), _v.strip().strip("'\""))
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-i@8h4$jjmn7uwo6$u5b%%-#(vfh9npj&jvd!dvq!p@xd*eg5!a'
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-i@8h4$jjmn7uwo6$u5b%%-#(vfh9npj&jvd!dvq!p@xd*eg5!a')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DEBUG', 'True').lower() in ('true', '1', 'yes')
 
 ALLOWED_HOSTS = ['*']
 
@@ -77,9 +89,22 @@ WSGI_APPLICATION = 'knowletive.wsgi.application'
 # Database
 import dj_database_url
 
-DATABASES = {
-    'default': dj_database_url.parse('postgresql://postgres.qfnslvumdakipyytmjfq:Knowletive%40123@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres', conn_max_age=600)
-}
+_DEFAULT_DATABASE_URL = 'postgresql://postgres.qfnslvumdakipyytmjfq:Knowletive%40123@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres'
+
+if 'test' in sys.argv:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': ':memory:',
+        }
+    }
+else:
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=os.environ.get('DATABASE_URL', _DEFAULT_DATABASE_URL),
+            conn_max_age=600
+        )
+    }
 
 
 # Password validation

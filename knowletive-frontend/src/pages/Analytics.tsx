@@ -6,7 +6,8 @@ import {
   LogOut,
   TrendingUp,
   ArrowLeft,
-  Shield
+  Shield,
+  Sparkles
 } from 'lucide-react';
 import RechartsAnalyticsDashboard from '../components/RechartsAnalyticsDashboard';
 
@@ -29,31 +30,31 @@ export default function Analytics() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans">
-      {/* Top Navigation Bar */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-40 px-4 sm:px-8 py-3.5 flex items-center justify-between shadow-2xs">
+    <div className="min-h-screen text-slate-800 flex flex-col font-sans">
+      {/* Top Glass Navigation Bar */}
+      <header className="glass-nav sticky top-0 z-40 px-4 sm:px-8 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate(isAdmin ? '/admin' : '/')}
-            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition flex items-center gap-2 text-xs font-semibold"
+            className="clay-btn clay-btn-secondary px-3 py-2 text-xs font-semibold rounded-xl"
             title="Go Back"
           >
-            <ArrowLeft size={16} />
+            <ArrowLeft size={15} />
             <span className="hidden sm:inline">{isAdmin ? 'Admin Console' : 'Tracker'}</span>
           </button>
 
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
-              <TrendingUp size={20} />
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white flex items-center justify-center shadow-[0_8px_16px_-4px_rgba(79,70,229,0.35),inset_1px_1px_2px_rgba(255,255,255,0.4)] border border-indigo-400/30">
+              <TrendingUp size={20} className="drop-shadow-xs" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-bold text-base text-slate-900 tracking-tight">Knowletive</span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-200">
-                  Analytics
+                <span className="font-extrabold text-base text-slate-900 tracking-tight">Knowletive</span>
+                <span className="clay-pill clay-pill-indigo text-[10px]">
+                  <Sparkles size={10} /> Analytics
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[11px] text-slate-500 font-medium">
                 {isAdmin ? 'Team performance and time insights' : 'Personal time-tracking and productivity trends'}
               </p>
             </div>
@@ -66,31 +67,31 @@ export default function Analytics() {
             {!isAdmin && (
               <button
                 onClick={() => navigate('/')}
-                className="px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-1.5"
+                className="clay-btn clay-btn-secondary px-3 py-1.5 text-xs font-semibold rounded-xl"
               >
-                <Clock size={14} />
+                <Clock size={14} className="text-indigo-600" />
                 <span>Time Tracker</span>
               </button>
             )}
             <button
               onClick={() => navigate('/timesheet')}
-              className="px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-1.5"
+              className="clay-btn clay-btn-secondary px-3 py-1.5 text-xs font-semibold rounded-xl"
             >
-              <Calendar size={14} />
+              <Calendar size={14} className="text-indigo-600" />
               <span>Timesheets</span>
             </button>
             {isAdmin && (
               <button
                 onClick={() => navigate('/admin')}
-                className="px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-1.5"
+                className="clay-btn clay-btn-secondary px-3 py-1.5 text-xs font-semibold rounded-xl"
               >
-                <Shield size={14} />
+                <Shield size={14} className="text-indigo-600" />
                 <span>Admin Console</span>
               </button>
             )}
           </div>
 
-          <div className="h-6 w-px bg-slate-200 hidden md:block" />
+          <div className="h-6 w-px bg-slate-200/80 hidden md:block" />
 
           {/* User Profile */}
           <div className="flex items-center gap-2.5">
@@ -105,7 +106,7 @@ export default function Analytics() {
 
             <button
               onClick={handleSignOut}
-              className="p-2 sm:px-3 sm:py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-xl flex items-center gap-1.5 transition shadow-2xs"
+              className="clay-btn clay-btn-secondary px-3 py-2 text-xs font-semibold rounded-xl hover:!text-rose-600"
               title="Sign Out"
             >
               <LogOut size={14} />

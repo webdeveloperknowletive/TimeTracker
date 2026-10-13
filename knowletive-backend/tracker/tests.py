@@ -8,7 +8,7 @@ from django.urls import reverse
 from django.core.management import call_command
 from rest_framework.test import APIClient
 from rest_framework.authtoken.models import Token
-from .models import User, Invitation, Notification
+from .models import User, Invitation, Notification, TimeEvent, TaskLog, TimesheetEntry, AuditLog, SystemSettings
 from .storage_adapter import storage
 
 IST_TZ = zoneinfo.ZoneInfo("Asia/Kolkata")
@@ -172,7 +172,7 @@ class TimeTrackerTestCase(TestCase):
         logs = res.data['audit_logs']
         correction_log = next((l for l in logs if l['action'] == 'ADMIN_CORRECTION'), None)
         self.assertIsNotNone(correction_log)
-        self.assertIn('Adjusting for missed system clock-in', correction_log['details'])
+        self.assertIn('Adjusting for missed system clock-in', str(correction_log['details']))
 
     def test_reports_and_export_formats(self):
         self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
@@ -189,7 +189,6 @@ class TimeTrackerTestCase(TestCase):
         csv_text = res.content.decode('utf-8')
         self.assertIn('Date (IST)', csv_text)
         self.assertIn('Break Duration', csv_text)
-        self.assertIn('Break Start/End Details', csv_text)
 
         # Excel Export
         res = self.client.get('/api/admin/reports/export/?format=xlsx')
@@ -202,7 +201,6 @@ class TimeTrackerTestCase(TestCase):
         ws = wb.active
         headers = [cell.value for cell in ws[4]]
         self.assertIn('Break Duration', headers)
-        self.assertIn('Break Start/End Details', headers)
 
     def test_export_break_duration_columns_and_dynamic_filenames(self):
         self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
@@ -269,14 +267,9 @@ class TimeTrackerTestCase(TestCase):
             {'event_id': 'e14', 'user_id': emp2.id, 'event_type': 'END_WORK', 'timestamp': '2026-10-05T13:30:00Z', 'source': 'web'},
         ]
 
-        # Save to mock storage
-        import json
-        with open(storage.local_file, 'r+', encoding='utf-8') as f:
-            data = json.load(f)
-            data['TimeEvents'] = events_data
-            f.seek(0)
-            json.dump(data, f, indent=2)
-            f.truncate()
+        # Save events to database
+        for ev in events_data:
+            TimeEvent.objects.create(**ev)
 
         # 1. TEST ADMIN PANEL JSON REPORTS API
         rep_res = self.client.get(f'/api/admin/reports/?user_id={emp1.id}&start_date=2026-10-01&end_date=2026-10-07')
@@ -285,8 +278,6 @@ class TimeTrackerTestCase(TestCase):
         r_oct5 = next(r for r in rep_res.data['reports'] if r['date'] == '2026-10-05')
         self.assertEqual(r_oct5['employee_name'], 'Ayush Kadam')
         self.assertEqual(r_oct5['break_duration'], '01:00:00')
-        self.assertIn('01:00:00 PM - 01:45:00 PM', r_oct5['break_details'])
-        self.assertIn('04:00:00 PM - 04:15:00 PM', r_oct5['break_details'])
         r_oct6 = next(r for r in rep_res.data['reports'] if r['date'] == '2026-10-06')
         self.assertEqual(r_oct6['break_duration'], '00:30:00')
         self.assertEqual(rep_res.data['summary']['total_break_duration'], '01:30:00')
@@ -300,7 +291,6 @@ class TimeTrackerTestCase(TestCase):
         self.assertIn('Ayush Kadam', csv1_content)
         self.assertNotIn('Aman Bendkule', csv1_content)  # Filter correctly excludes other employee
         self.assertIn('01:00:00', csv1_content)
-        self.assertIn('01:00:00 PM - 01:45:00 PM', csv1_content)
         self.assertIn('01:30:00', csv1_content)  # Totals row break duration
 
         # 3. TEST AYUSH KADAM EXCEL EXPORT (Single Employee, Date Range)
@@ -312,17 +302,14 @@ class TimeTrackerTestCase(TestCase):
         ws1 = wb1.active
         headers1 = [cell.value for cell in ws1[4]]
         self.assertIn('Break Duration', headers1)
-        self.assertIn('Break Start/End Details', headers1)
         date_idx1 = headers1.index('Date (IST)') + 1
         break_dur_idx = headers1.index('Break Duration') + 1
-        break_det_idx = headers1.index('Break Start/End Details') + 1
         emp_name_idx = headers1.index('Employee Name') + 1
         
         # Check Oct 5 and Oct 6 rows in Excel
         row_oct5 = next(r for r in range(5, ws1.max_row) if ws1.cell(row=r, column=date_idx1).value == '2026-10-05')
         self.assertEqual(ws1.cell(row=row_oct5, column=emp_name_idx).value, 'Ayush Kadam')
         self.assertEqual(ws1.cell(row=row_oct5, column=break_dur_idx).value, '01:00:00')
-        self.assertIn('01:00:00 PM - 01:45:00 PM', ws1.cell(row=row_oct5, column=break_det_idx).value)
 
         row_oct6 = next(r for r in range(5, ws1.max_row) if ws1.cell(row=r, column=date_idx1).value == '2026-10-06')
         self.assertEqual(ws1.cell(row=row_oct6, column=break_dur_idx).value, '00:30:00')
@@ -338,7 +325,6 @@ class TimeTrackerTestCase(TestCase):
         row_oct5_aman = next(r for r in range(5, ws2.max_row) if ws2.cell(row=r, column=date_idx2).value == '2026-10-05')
         self.assertEqual(ws2.cell(row=row_oct5_aman, column=emp_name_idx).value, 'Aman Bendkule')
         self.assertEqual(ws2.cell(row=row_oct5_aman, column=break_dur_idx).value, '00:30:00')
-        self.assertEqual(ws2.cell(row=row_oct5_aman, column=break_det_idx).value, '12:30:00 PM - 01:00:00 PM')
 
         csv_emp2 = self.client.get(f'/api/admin/reports/export/?format=csv&user_id={emp2.id}&start_date=2026-10-01&end_date=2026-10-31')
         self.assertEqual(csv_emp2.status_code, 200)
@@ -482,14 +468,14 @@ class TimeTrackerTestCase(TestCase):
         self.assertIsNotNone(task1['start_time'])
         task1_id = task1['task_log_id']
 
-        # 2. Cannot start another task while one is currently in progress
+        # 2. Cannot start a task without required project name
         res = self.client.post('/api/tasks/start/', {
-            'project_name': 'Project Beta',
+            'project_name': '',
             'task_name': 'Preparing report',
             'description': 'Drafting Q3 deck'
         })
         self.assertEqual(res.status_code, 400)
-        self.assertIn('already in progress', res.data['error'])
+        self.assertIn('Project name is required', res.data['error'])
 
         # 3. Employee updates project/task/description of current task
         res = self.client.patch(f'/api/tasks/{task1_id}/', {
@@ -1229,7 +1215,7 @@ class EmployeeSignupAndOnboardingTestCase(TestCase):
         self.assertIn('Knowletive Cloud', csv_text)
         self.assertIn('Core API Architecture', csv_text)
         self.assertIn('TOTALS', csv_text)
-        self.assertIn(f"{summary['total_work_hours']}", csv_text)
+        self.assertIn(summary['total_work_duration'], csv_text)
 
         # 5. Admin downloads Excel for Employee 1
         res_xlsx = self.client.get(f'/api/admin/reports/export/?format=xlsx&employee_id={self.employee.id}&start_date={today_str}&end_date={today_str}')

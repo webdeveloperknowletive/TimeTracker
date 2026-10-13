@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Clock, AlertCircle, ArrowRight, User } from 'lucide-react';
+import { Clock, AlertCircle, ArrowRight, User, Lock, Sparkles } from 'lucide-react';
 import api from '../lib/api';
 
 export default function Login() {
@@ -33,7 +33,6 @@ export default function Login() {
       localStorage.setItem('token', res.data.token);
       localStorage.setItem('user', JSON.stringify(res.data.user));
 
-      // Route to correct dashboard based on backend-assigned account type
       if (res.data.user.role === 'ADMIN') {
         navigate('/admin');
       } else {
@@ -47,35 +46,49 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center p-4">
+    <div className="min-h-screen flex flex-col justify-center items-center p-4 sm:p-6 relative overflow-hidden">
+      {/* Decorative ambient glass spheres */}
+      <div className="absolute top-1/4 left-1/4 w-72 h-72 bg-indigo-200/40 rounded-full blur-3xl pointer-events-none -z-10" />
+      <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-violet-200/40 rounded-full blur-3xl pointer-events-none -z-10" />
+      <div className="absolute top-2/3 left-1/3 w-60 h-60 bg-teal-100/40 rounded-full blur-3xl pointer-events-none -z-10" />
+
       <div className="w-full max-w-md">
-        {/* Brand Header */}
+        {/* Brand Header with Clay Badge */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-600 text-white shadow-sm mb-3">
-            <Clock size={28} />
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white shadow-[0_12px_24px_-6px_rgba(79,70,229,0.4),inset_1px_1px_2px_rgba(255,255,255,0.45)] border border-indigo-400/30 mb-3.5 transition-transform hover:scale-105 duration-200">
+            <Clock size={32} className="drop-shadow-sm" />
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Knowletive</h1>
-          <p className="text-slate-500 mt-1.5 text-sm">Employee Time & Attendance Portal</p>
+          <div className="flex items-center justify-center gap-2">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Knowletive</h1>
+            <span className="clay-pill clay-pill-indigo text-[11px] font-bold">
+              <Sparkles size={11} /> Hub
+            </span>
+          </div>
+          <p className="text-slate-500 mt-1.5 text-xs sm:text-sm font-medium">
+            Time & Attendance Workspace Portal
+          </p>
         </div>
 
-        {/* Card */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-7 sm:p-8 shadow-xs">
+        {/* Claymorphic & Glassmorphic Login Card */}
+        <div className="clay-card p-7 sm:p-9 relative">
           <div className="mb-6">
-            <h2 className="text-lg font-bold text-slate-900">Sign In</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Enter your username and password to access your dashboard</p>
+            <h2 className="text-xl font-bold text-slate-900 tracking-tight">Welcome Back</h2>
+            <p className="text-xs sm:text-sm text-slate-500 mt-1">
+              Enter your credentials to access your dashboard
+            </p>
           </div>
 
           {error && (
-            <div className="mb-5 p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2.5 text-rose-800 text-xs sm:text-sm">
+            <div className="mb-5 p-3.5 bg-rose-50/90 border border-rose-200/80 rounded-2xl flex items-start gap-3 text-rose-900 text-xs sm:text-sm shadow-xs animate-fadeIn">
               <AlertCircle size={18} className="shrink-0 text-rose-600 mt-0.5" />
-              <span>{error}</span>
+              <span className="font-medium">{error}</span>
             </div>
           )}
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
-                Username
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                Username or Email
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -85,36 +98,47 @@ export default function Login() {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Enter your username"
+                  placeholder="Enter your username or email"
                   required
                   autoComplete="username"
-                  className="w-full pl-10 pr-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm transition"
+                  className="clay-input w-full pl-10 pr-3.5 py-3 text-sm placeholder-slate-400 font-medium"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 mb-1.5">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                 Password
               </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                autoComplete="current-password"
-                className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm transition"
-              />
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                  <Lock size={16} />
+                </div>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  autoComplete="current-password"
+                  className="clay-input w-full pl-10 pr-3.5 py-3 text-sm placeholder-slate-400 font-medium"
+                />
+              </div>
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full mt-2 py-3 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold text-sm rounded-xl shadow-xs transition flex items-center justify-center gap-2"
+              className="clay-btn clay-btn-primary w-full mt-3 py-3.5 px-4 text-sm font-semibold rounded-xl"
             >
               {loading ? (
-                <span>Signing in...</span>
+                <span className="flex items-center gap-2">
+                  <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>Authenticating...</span>
+                </span>
               ) : (
                 <>
                   <span>Sign In</span>
@@ -125,20 +149,20 @@ export default function Login() {
           </form>
 
           {/* Sign Up Option */}
-          <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-between text-xs">
-            <span className="text-slate-600">Don't have an account?</span>
+          <div className="mt-7 pt-5 border-t border-slate-200/60 flex items-center justify-between text-xs sm:text-sm">
+            <span className="text-slate-500 font-medium">New to Knowletive?</span>
             <Link
               to="/signup"
-              className="font-bold text-indigo-600 hover:text-indigo-800 underline underline-offset-2 flex items-center gap-1 transition"
+              className="font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1.5 transition-colors group"
             >
               <span>Create Account</span>
-              <ArrowRight size={13} />
+              <ArrowRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
             </Link>
           </div>
         </div>
 
-        <p className="text-center text-slate-400 text-xs mt-6">
-          Asia/Kolkata timezone • Simple & Secure Authentication
+        <p className="text-center text-slate-400 font-medium text-xs mt-6">
+          Asia/Kolkata (IST) • Enterprise Time Tracking
         </p>
       </div>
     </div>

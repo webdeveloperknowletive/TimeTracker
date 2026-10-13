@@ -549,17 +549,17 @@ export default function Tracker() {
   }, [status]);
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-800 flex flex-col font-sans">
-      {/* 1. TOP NAVBAR */}
-      <header className="bg-white/95 backdrop-blur-md border-b border-slate-200/80 sticky top-0 z-40 px-4 sm:px-8 py-3 flex items-center justify-between shadow-2xs">
+    <div className="min-h-screen text-slate-800 flex flex-col font-sans">
+      {/* 1. TOP NAVBAR (Glassmorphic) */}
+      <header className="glass-nav sticky top-0 z-40 px-4 sm:px-8 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-teal-500 flex items-center justify-center text-white shadow-xs">
-            <Clock size={19} className="text-white" />
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center text-white shadow-[0_8px_16px_-4px_rgba(79,70,229,0.35),inset_1px_1px_2px_rgba(255,255,255,0.4)] border border-indigo-400/30">
+            <Clock size={20} className="text-white drop-shadow-xs" />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <span className="font-extrabold text-base text-slate-900 tracking-tight">Knowletive</span>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-bold border border-blue-200/70 uppercase tracking-wider">
+              <span className="clay-pill clay-pill-indigo text-[10px]">
                 Time Tracker
               </span>
             </div>
@@ -575,7 +575,7 @@ export default function Tracker() {
                 {user.name || user.username || user.email}
               </span>
               {(user.employee_id || employeeInfo?.employee_id) && (
-                <span className="text-[10px] font-mono font-bold bg-teal-50 text-teal-700 px-1.5 py-0.5 rounded border border-teal-200">
+                <span className="clay-pill clay-pill-indigo text-[10px] font-mono py-0 px-1.5">
                   {user.employee_id || employeeInfo?.employee_id}
                 </span>
               )}
@@ -585,29 +585,29 @@ export default function Tracker() {
 
           <button
             onClick={() => navigate('/timesheet')}
-            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200/80 transition shadow-2xs"
+            className="clay-btn clay-btn-secondary px-3 py-2 text-xs font-semibold rounded-xl"
             title="Monthly Timesheet"
           >
-            <Calendar size={14} className="text-teal-600" />
+            <Calendar size={14} className="text-indigo-600" />
             <span className="hidden sm:inline">Monthly Timesheet</span>
           </button>
 
           <button
             onClick={() => navigate('/analytics')}
-            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-teal-50/80 hover:bg-teal-100 text-teal-800 border border-teal-200/80 transition shadow-2xs"
+            className="clay-btn clay-btn-secondary px-3 py-2 text-xs font-semibold rounded-xl"
             title="View Analytics"
           >
-            <TrendingUp size={14} className="text-teal-600" />
+            <TrendingUp size={14} className="text-indigo-600" />
             <span className="hidden sm:inline">Analytics</span>
           </button>
 
           {isAdmin && (
             <button
               onClick={() => navigate('/admin')}
-              className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-blue-50/80 hover:bg-blue-100 text-blue-800 border border-blue-200/80 transition shadow-2xs"
+              className="clay-btn clay-btn-secondary px-3 py-2 text-xs font-semibold rounded-xl"
               title="Admin Console"
             >
-              <Shield size={14} className="text-blue-600" />
+              <Shield size={14} className="text-indigo-600" />
               <span className="hidden lg:inline">Admin Console</span>
             </button>
           )}
@@ -615,10 +615,10 @@ export default function Tracker() {
           <button
             onClick={requestNotificationPermission}
             title={notificationEnabled ? 'Notifications enabled' : 'Enable notifications'}
-            className={`p-2 rounded-xl border transition shadow-2xs ${
+            className={`clay-btn p-2 rounded-xl transition ${
               notificationEnabled 
-                ? 'border-blue-200 text-blue-600 bg-blue-50' 
-                : 'border-slate-200 text-slate-500 hover:bg-slate-100'
+                ? 'clay-btn-primary !p-2' 
+                : 'clay-btn-secondary !p-2'
             }`}
           >
             <Bell size={15} />
@@ -627,7 +627,7 @@ export default function Tracker() {
           <button
             onClick={handleLogout}
             title="Sign Out"
-            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-white hover:bg-rose-50 text-slate-600 hover:text-rose-700 border border-slate-200 hover:border-rose-200 transition shadow-2xs"
+            className="clay-btn clay-btn-secondary px-3 py-2 text-xs font-semibold rounded-xl hover:!text-rose-600"
           >
             <LogOut size={14} />
             <span className="hidden md:inline">Sign Out</span>
@@ -639,7 +639,7 @@ export default function Tracker() {
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-5">
         {/* Error Feedback Banner */}
         {errorMsg && (
-          <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-center justify-between gap-3 text-rose-800 text-xs shadow-xs">
+          <div className="p-4 bg-rose-50/90 border border-rose-200/90 rounded-2xl flex items-center justify-between gap-3 text-rose-900 text-xs shadow-xs animate-fadeIn">
             <div className="flex items-center gap-2.5">
               <AlertTriangle size={16} className="shrink-0 text-rose-600" />
               <span className="font-medium">{errorMsg}</span>
@@ -655,7 +655,7 @@ export default function Tracker() {
 
         {/* Success Feedback Banner */}
         {successMsg && (
-          <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between gap-3 text-emerald-800 text-xs shadow-xs">
+          <div className="p-4 bg-emerald-50/90 border border-emerald-200/90 rounded-2xl flex items-center justify-between gap-3 text-emerald-900 text-xs shadow-xs animate-fadeIn">
             <div className="flex items-center gap-2.5">
               <CheckCircle size={16} className="shrink-0 text-emerald-600" />
               <span className="font-medium">{successMsg}</span>
@@ -678,7 +678,7 @@ export default function Tracker() {
             </div>
             <button 
               onClick={() => setReminderDismissed(true)} 
-              className="text-xs text-amber-700 hover:text-amber-900 font-bold px-2 py-1 rounded-lg hover:bg-amber-100/70 transition"
+              className="clay-btn clay-btn-secondary text-xs px-2.5 py-1 rounded-lg"
             >
               Dismiss
             </button>
@@ -693,17 +693,17 @@ export default function Tracker() {
             </div>
             <button 
               onClick={() => setReminderDismissed(true)} 
-              className="text-xs text-sky-700 hover:text-sky-900 font-bold px-2 py-1 rounded-lg hover:bg-sky-100/70 transition"
+              className="clay-btn clay-btn-secondary text-xs px-2.5 py-1 rounded-lg"
             >
               Dismiss
             </button>
           </div>
         )}
 
-        {/* 3. HERO WORKDAY STATUS CARD (Modern Light Centerpiece) */}
-        <div className={`bg-white rounded-3xl p-6 sm:p-8 border transition-all duration-300 ${statusTheme.cardGlow}`}>
+        {/* 3. HERO WORKDAY STATUS CARD (Claymorphic) */}
+        <div className="clay-card p-6 sm:p-8 relative">
           {/* Header Status & Verification Label */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-slate-100">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-slate-200/60">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Workday Attendance</p>
               <div className="flex items-center gap-3">
@@ -716,7 +716,7 @@ export default function Tracker() {
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 text-xs font-medium self-start sm:self-auto shadow-2xs">
+            <div className="clay-pill clay-pill-neutral self-start sm:self-auto">
               <ShieldCheck size={14} className="text-emerald-600" />
               <span>Server-Verified Time (IST)</span>
             </div>
@@ -727,16 +727,16 @@ export default function Tracker() {
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
               {status === 'Ended' ? 'Workday Completed' : status === 'Not Started' ? 'Tracker Not Started' : 'Total Hours Today'}
             </p>
-            <div className={`font-mono text-5xl sm:text-6xl font-black tracking-tight text-slate-900`}>
+            <div className="font-mono text-5xl sm:text-6xl font-black tracking-tight text-slate-900 drop-shadow-xs">
               {formatDigitalDuration(elapsedTotalDay)}
             </div>
             
-            {/* 9 Hour Completion Progress */}
+            {/* 9 Hour Completion Progress with Clay Inset Well */}
             {status !== 'Not Started' && (
               <div className="mt-6 flex flex-col items-center">
-                <div className="w-full max-w-md bg-slate-100 rounded-full h-2.5 mb-2.5 overflow-hidden flex items-center justify-start border border-slate-200">
+                <div className="w-full max-w-md clay-inset-well h-3 mb-2.5 p-0.5 overflow-hidden flex items-center">
                   <div 
-                    className={`h-full rounded-full transition-all duration-1000 ${is9HoursCompleted ? 'bg-emerald-500' : 'bg-blue-600'}`}
+                    className={`h-full rounded-full transition-all duration-1000 shadow-xs ${is9HoursCompleted ? 'bg-gradient-to-r from-emerald-500 to-teal-500' : 'bg-gradient-to-r from-indigo-500 to-indigo-600'}`}
                     style={{ width: `${progressPercentage}%` }}
                   />
                 </div>
@@ -749,26 +749,26 @@ export default function Tracker() {
                   <p className="text-xs text-slate-500 font-medium flex items-center gap-2">
                     <span>{progressPercentage.toFixed(1)}% of 9h completed</span>
                     <span className="text-slate-300">•</span>
-                    <span className="text-blue-700 font-semibold">Remaining: {formatDigitalDuration(remainingSeconds)}</span>
+                    <span className="text-indigo-700 font-semibold">Remaining: {formatDigitalDuration(remainingSeconds)}</span>
                   </p>
                 )}
               </div>
             )}
           </div>
 
-          {/* 4 Metric Tiles Strip */}
+          {/* 4 Metric Tiles Strip with Claymorphic Depth */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-2">
-            <div className="p-3.5 bg-slate-50/80 border border-slate-200/80 rounded-2xl text-center">
-              <p className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider mb-1">Clock-In</p>
+            <div className="clay-card-flat p-4 text-center">
+              <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider mb-1">Clock-In</p>
               <p className="text-sm sm:text-base font-bold text-slate-800">
                 {formatReadableTime(startTime)}
               </p>
             </div>
 
-            <div className={`p-3.5 border rounded-2xl text-center transition ${status === 'Working' ? 'bg-emerald-50/80 border-emerald-300 ring-1 ring-emerald-200' : 'bg-slate-50/60 border-slate-200/80'}`}>
+            <div className={`clay-card-flat p-4 text-center transition ${status === 'Working' ? '!bg-emerald-50/70 !border-emerald-300/80 ring-2 ring-emerald-200/50' : ''}`}>
               <div className="flex items-center justify-center gap-1.5 mb-1">
                 {status === 'Working' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />}
-                <p className={`text-[11px] font-semibold uppercase tracking-wider ${status === 'Working' ? 'text-emerald-800' : 'text-slate-500'}`}>
+                <p className={`text-[11px] font-bold uppercase tracking-wider ${status === 'Working' ? 'text-emerald-800' : 'text-slate-500'}`}>
                   Work Time {status === 'On Break' ? '(Frozen)' : ''}
                 </p>
               </div>
@@ -777,10 +777,10 @@ export default function Tracker() {
               </p>
             </div>
 
-            <div className={`p-3.5 border rounded-2xl text-center transition ${status === 'On Break' ? 'bg-amber-50/80 border-amber-300 ring-1 ring-amber-200' : 'bg-slate-50/60 border-slate-200/80'}`}>
+            <div className={`clay-card-flat p-4 text-center transition ${status === 'On Break' ? '!bg-amber-50/70 !border-amber-300/80 ring-2 ring-amber-200/50' : ''}`}>
               <div className="flex items-center justify-center gap-1.5 mb-1">
                 {status === 'On Break' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />}
-                <p className={`text-[11px] font-semibold uppercase tracking-wider ${status === 'On Break' ? 'text-amber-800' : 'text-slate-500'}`}>
+                <p className={`text-[11px] font-bold uppercase tracking-wider ${status === 'On Break' ? 'text-amber-800' : 'text-slate-500'}`}>
                   Break Time {status === 'Working' ? '(Frozen)' : ''}
                 </p>
               </div>
@@ -789,21 +789,21 @@ export default function Tracker() {
               </p>
             </div>
 
-            <div className="p-3.5 bg-slate-50/80 border border-slate-200/80 rounded-2xl text-center">
-              <p className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider mb-1">Clock-Out</p>
+            <div className="clay-card-flat p-4 text-center">
+              <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider mb-1">Clock-Out</p>
               <p className="text-sm sm:text-base font-bold text-slate-800">
                 {formatReadableTime(endTime)}
               </p>
             </div>
           </div>
 
-          {/* Primary Action Buttons */}
-          <div className="pt-5 border-t border-slate-100">
+          {/* Primary Action Buttons (Tactile Clay) */}
+          <div className="pt-5 border-t border-slate-200/60">
             {status === 'Not Started' && (
               <button
                 onClick={handleStartWorkdayClick}
                 disabled={loadingAction}
-                className="w-full py-4 bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-base sm:text-lg rounded-2xl shadow-sm hover:shadow transition flex items-center justify-center gap-2.5 active:scale-[0.99]"
+                className="clay-btn clay-btn-success w-full py-4 text-base sm:text-lg font-bold rounded-2xl"
               >
                 <Play size={20} className="fill-white" />
                 <span>{loadingAction ? 'Starting Workday...' : 'Start Workday'}</span>
@@ -815,7 +815,7 @@ export default function Tracker() {
                 <button
                   onClick={() => handleAction('START_BREAK')}
                   disabled={loadingAction}
-                  className="py-3.5 px-6 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm sm:text-base rounded-2xl shadow-xs transition flex items-center justify-center gap-2 active:scale-[0.99]"
+                  className="clay-btn clay-btn-warning py-3.5 px-6 font-bold text-sm sm:text-base rounded-2xl"
                 >
                   <Coffee size={18} />
                   <span>{loadingAction ? 'Updating...' : 'Start Break'}</span>
@@ -823,7 +823,7 @@ export default function Tracker() {
                 <button
                   onClick={() => handleAction('END_WORK')}
                   disabled={loadingAction}
-                  className="py-3.5 px-6 bg-white hover:bg-rose-50 disabled:opacity-50 disabled:cursor-not-allowed text-rose-700 border-2 border-rose-200 hover:border-rose-300 font-bold text-sm sm:text-base rounded-2xl transition flex items-center justify-center gap-2 active:scale-[0.99]"
+                  className="clay-btn clay-btn-danger py-3.5 px-6 font-bold text-sm sm:text-base rounded-2xl"
                 >
                   <CheckCircle size={18} />
                   <span>End Workday</span>
@@ -836,7 +836,7 @@ export default function Tracker() {
                 <button
                   onClick={() => handleAction('RESUME_WORK')}
                   disabled={loadingAction}
-                  className="py-3.5 px-6 bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm sm:text-base rounded-2xl shadow-xs transition flex items-center justify-center gap-2 active:scale-[0.99]"
+                  className="clay-btn clay-btn-primary py-3.5 px-6 font-bold text-sm sm:text-base rounded-2xl"
                 >
                   <Play size={18} className="fill-white" />
                   <span>{loadingAction ? 'Updating...' : 'Resume Work (End Break)'}</span>
@@ -844,7 +844,7 @@ export default function Tracker() {
                 <button
                   onClick={() => handleAction('END_WORK')}
                   disabled={loadingAction}
-                  className="py-3.5 px-6 bg-white hover:bg-rose-50 disabled:opacity-50 disabled:cursor-not-allowed text-rose-700 border-2 border-rose-200 hover:border-rose-300 font-bold text-sm sm:text-base rounded-2xl transition flex items-center justify-center gap-2 active:scale-[0.99]"
+                  className="clay-btn clay-btn-danger py-3.5 px-6 font-bold text-sm sm:text-base rounded-2xl"
                 >
                   <CheckCircle size={18} />
                   <span>End Workday</span>
@@ -853,7 +853,7 @@ export default function Tracker() {
             )}
 
             {status === 'Ended' && (
-              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-center">
+              <div className="p-4 clay-card-flat text-center">
                 <p className="text-slate-900 font-bold text-sm flex items-center justify-center gap-1.5">
                   <CheckCircle2 size={16} className="text-emerald-600" />
                   Workday Completed
@@ -868,42 +868,42 @@ export default function Tracker() {
 
         {/* 4. ACTIVE TASK CARD */}
         {activeTask ? (
-          <div className={`rounded-3xl p-6 shadow-xs space-y-4 border-2 transition ${
+          <div className={`clay-card p-6 sm:p-7 relative space-y-4 border transition-all ${
             status === 'On Break'
-              ? 'bg-amber-50/40 border-amber-200/90'
-              : 'bg-gradient-to-br from-blue-50/60 via-white to-teal-50/40 border-blue-200/90'
+              ? '!border-amber-300/80 !bg-amber-50/40 ring-2 ring-amber-200/50'
+              : '!border-indigo-300/80 !bg-indigo-50/30 ring-2 ring-indigo-200/40'
           }`}>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-200/80">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-200/60">
               <div>
                 <div className="flex items-center gap-2 mb-1.5">
                   {status === 'On Break' ? (
-                    <span className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1.5">
+                    <span className="clay-pill clay-pill-warning">
                       <Pause size={12} className="text-amber-700" />
                       Paused during Break
                     </span>
                   ) : (
-                    <span className="text-[11px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                    <span className="clay-pill clay-pill-success">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
                       Working on Task
                     </span>
                   )}
-                  <span className="text-xs font-semibold px-2.5 py-0.5 rounded-lg bg-white text-blue-800 border border-blue-200/80">
+                  <span className="clay-pill clay-pill-indigo">
                     {activeTask.project_name}
                   </span>
                 </div>
-                <h3 className="text-xl font-extrabold text-slate-900">
+                <h3 className="text-xl font-extrabold text-slate-900 tracking-tight">
                   {activeTask.task_name}
                 </h3>
               </div>
 
               {/* Task Running Timer (FROZEN if on break) */}
-              <div className={`border rounded-2xl px-5 py-3 text-right self-start sm:self-auto shadow-2xs ${
-                status === 'On Break' ? 'bg-amber-50 border-amber-200' : 'bg-white border-blue-200'
+              <div className={`clay-card-flat px-5 py-3 text-right self-start sm:self-auto ${
+                status === 'On Break' ? '!bg-amber-50/90 !border-amber-300/80' : '!bg-white/95 !border-indigo-200/80'
               }`}>
                 <p className={`text-[10px] font-bold uppercase tracking-wider ${status === 'On Break' ? 'text-amber-700' : 'text-slate-500'}`}>
                   {status === 'On Break' ? 'Task Timer (FROZEN)' : 'Task Running Time'}
                 </p>
-                <p className={`font-mono text-2xl font-black tracking-tight ${status === 'On Break' ? 'text-amber-700' : 'text-blue-700'}`}>
+                <p className={`font-mono text-2xl font-black tracking-tight ${status === 'On Break' ? 'text-amber-700' : 'text-indigo-600'}`}>
                   {formatDigitalDuration(activeTaskElapsed)}
                 </p>
               </div>
@@ -911,23 +911,23 @@ export default function Tracker() {
 
             {/* Description & Start Timestamp */}
             <div className="text-xs sm:text-sm text-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <p className="text-slate-600 leading-relaxed">
+              <p className="text-slate-600 leading-relaxed font-medium">
                 {activeTask.description || <span className="italic text-slate-400">No task description entered</span>}
               </p>
-              <div className="text-xs text-slate-500 flex items-center gap-1.5 shrink-0">
-                <Clock size={13} className="text-blue-600" />
+              <div className="text-xs text-slate-500 font-medium flex items-center gap-1.5 shrink-0">
+                <Clock size={13} className="text-indigo-600" />
                 <span>Started at <strong className="text-slate-800">{activeTask.start_time_formatted || '-'}</strong></span>
               </div>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex flex-wrap items-center gap-2.5 pt-2 border-t border-slate-200/80">
+            {/* Action Buttons (Tactile Clay) */}
+            <div className="flex flex-wrap items-center gap-2.5 pt-2 border-t border-slate-200/60">
               {status === 'On Break' ? (
                 <>
                   <button
                     onClick={() => handleAction('RESUME_WORK')}
                     disabled={loadingAction}
-                    className="py-2.5 px-4 bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 disabled:opacity-50 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-xs transition flex items-center gap-1.5"
+                    className="clay-btn clay-btn-primary py-2.5 px-4 text-xs sm:text-sm rounded-xl"
                   >
                     <Play size={14} className="fill-white" />
                     <span>Resume This Task</span>
@@ -936,7 +936,7 @@ export default function Tracker() {
                   <button
                     onClick={() => setShowEndAndNextModal(true)}
                     disabled={loadingAction}
-                    className="py-2.5 px-4 bg-white hover:bg-slate-50 text-blue-700 border border-blue-200 font-semibold text-xs sm:text-sm rounded-xl transition flex items-center gap-1.5"
+                    className="clay-btn clay-btn-secondary py-2.5 px-4 text-xs sm:text-sm rounded-xl"
                   >
                     <ArrowRight size={14} />
                     <span>Switch to Another Task</span>
@@ -945,9 +945,9 @@ export default function Tracker() {
                   <button
                     onClick={handleEndActiveTask}
                     disabled={loadingAction}
-                    className="py-2.5 px-4 bg-white hover:bg-rose-50 disabled:opacity-50 text-rose-700 border border-rose-200 font-semibold text-xs sm:text-sm rounded-xl transition flex items-center gap-1.5"
+                    className="clay-btn clay-btn-danger py-2.5 px-4 text-xs sm:text-sm rounded-xl"
                   >
-                    <Check size={14} className="text-rose-600" />
+                    <Check size={14} />
                     <span>Stop Task</span>
                   </button>
                 </>
@@ -956,7 +956,7 @@ export default function Tracker() {
                   <button
                     onClick={() => handleAction('START_BREAK')}
                     disabled={loadingAction}
-                    className="py-2.5 px-4 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-xs transition flex items-center gap-1.5"
+                    className="clay-btn clay-btn-warning py-2.5 px-4 text-xs sm:text-sm rounded-xl"
                   >
                     <Coffee size={14} />
                     <span>Start Break</span>
@@ -965,7 +965,7 @@ export default function Tracker() {
                   <button
                     onClick={() => setShowEndAndNextModal(true)}
                     disabled={loadingAction}
-                    className="py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-xs transition flex items-center gap-1.5"
+                    className="clay-btn clay-btn-primary py-2.5 px-4 text-xs sm:text-sm rounded-xl"
                   >
                     <span>Switch Task</span>
                     <ArrowRight size={14} />
@@ -974,7 +974,7 @@ export default function Tracker() {
                   <button
                     onClick={handleEndActiveTask}
                     disabled={loadingAction}
-                    className="py-2.5 px-4 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 border border-slate-300 font-semibold text-xs sm:text-sm rounded-xl transition flex items-center gap-1.5"
+                    className="clay-btn clay-btn-secondary py-2.5 px-4 text-xs sm:text-sm rounded-xl !text-emerald-700"
                   >
                     <Check size={15} className="text-emerald-600" />
                     <span>Stop Task</span>
@@ -984,7 +984,7 @@ export default function Tracker() {
 
               <button
                 onClick={() => openEditModal(activeTask)}
-                className="py-2.5 px-3 bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 text-xs font-semibold rounded-xl transition ml-auto flex items-center gap-1.5"
+                className="clay-btn clay-btn-secondary py-2 px-3 text-xs rounded-xl ml-auto"
               >
                 <Edit2 size={13} />
                 <span>Edit Details</span>
@@ -993,16 +993,16 @@ export default function Tracker() {
           </div>
         ) : (
           /* When NO task is active */
-          <div className="bg-white border border-slate-200/80 rounded-3xl p-5 sm:p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="clay-card p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3.5">
-              <div className="w-10 h-10 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+              <div className="w-11 h-11 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 shadow-inner">
                 <Briefcase size={20} />
               </div>
               <div>
                 <h4 className="font-bold text-slate-900 text-sm sm:text-base">
                   {status === 'On Break' ? 'On Break (No Active Task)' : 'No Task in Progress'}
                 </h4>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-xs text-slate-500 mt-0.5 font-medium">
                   {status === 'Working' 
                     ? 'Start tracking a specific task or project to log your hours accurately.' 
                     : status === 'On Break'
@@ -1018,9 +1018,9 @@ export default function Tracker() {
                   <button
                     onClick={() => handleAction('RESUME_WORK')}
                     disabled={loadingAction}
-                    className="py-2.5 px-4 bg-white hover:bg-slate-50 text-teal-700 border border-teal-200 font-semibold text-xs sm:text-sm rounded-xl transition flex items-center gap-1.5"
+                    className="clay-btn clay-btn-secondary py-2.5 px-4 text-xs sm:text-sm rounded-xl"
                   >
-                    <Play size={14} className="fill-teal-700" />
+                    <Play size={14} className="fill-indigo-700 text-indigo-700" />
                     <span>Resume Work</span>
                   </button>
                 )}
@@ -1030,7 +1030,7 @@ export default function Tracker() {
                     setShowNewTaskModal(true);
                   }}
                   disabled={loadingAction}
-                  className="py-2.5 px-5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-xs transition flex items-center gap-2"
+                  className="clay-btn clay-btn-primary py-2.5 px-5 text-xs sm:text-sm rounded-xl"
                 >
                   <Plus size={16} />
                   <span>Start New Task</span>
@@ -1043,14 +1043,14 @@ export default function Tracker() {
         {/* 5. TODAY'S TASKS LIST & REAL-TIME ANALYSIS DASHBOARD */}
         <div className="space-y-4">
           {/* Segmented View Mode Switcher */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-2.5 rounded-2xl border border-slate-200/80 shadow-xs">
-            <div className="inline-flex rounded-xl bg-slate-100 p-1">
+          <div className="clay-card-flat p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="inline-flex rounded-xl bg-slate-200/50 p-1">
               <button
                 type="button"
                 onClick={() => setWorkViewMode('tasks')}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
                   workViewMode === 'tasks'
-                    ? 'bg-white text-blue-700 shadow-2xs'
+                    ? 'bg-white text-indigo-700 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -1062,7 +1062,7 @@ export default function Tracker() {
                 onClick={() => setWorkViewMode('analytics')}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
                   workViewMode === 'analytics'
-                    ? 'bg-white text-blue-700 shadow-2xs'
+                    ? 'bg-white text-indigo-700 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -1077,13 +1077,13 @@ export default function Tracker() {
                 type="date"
                 value={selectedTaskDate}
                 onChange={(e) => setSelectedTaskDate(e.target.value)}
-                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="clay-input px-3 py-1.5 text-xs font-mono font-medium"
               />
               {selectedTaskDate !== getTodayIsoDate() && (
                 <button
                   type="button"
                   onClick={() => setSelectedTaskDate(getTodayIsoDate())}
-                  className="px-2.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-xl text-xs font-bold border border-blue-200 transition"
+                  className="clay-btn clay-btn-secondary px-2.5 py-1 text-xs font-bold rounded-lg"
                   title="Switch to Today"
                 >
                   Today
@@ -1094,11 +1094,11 @@ export default function Tracker() {
 
           {/* View Mode A: Real-Time Analysis Dashboard */}
           {workViewMode === 'analytics' ? (
-            <div className="bg-white border border-slate-200/80 rounded-3xl p-5 sm:p-7 shadow-xs space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+            <div className="clay-card p-5 sm:p-7 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/60">
                 <div>
                   <h3 className="font-bold text-base sm:text-lg text-slate-900 flex items-center gap-2">
-                    <TrendingUp size={18} className="text-blue-600" />
+                    <TrendingUp size={18} className="text-indigo-600" />
                     <span>Personal Real-Time Task Analytics</span>
                   </h3>
                   <p className="text-xs text-slate-500 font-medium">
@@ -1111,7 +1111,7 @@ export default function Tracker() {
                     <select
                       value={taskFilterProject}
                       onChange={(e) => setTaskFilterProject(e.target.value)}
-                      className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="clay-input px-3 py-1.5 text-xs font-medium"
                     >
                       <option value="">All Projects</option>
                       {projectBreakdown.map((p) => (
@@ -1140,21 +1140,21 @@ export default function Tracker() {
             </div>
           ) : (
             /* View Mode B: Detailed Tasks List & Project Summary */
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-7 shadow-xs space-y-5">
+            <div className="clay-card p-6 sm:p-7 space-y-5">
               {/* Header & Date Selector */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200/60">
                 <div>
                   <h3 className="font-bold text-base sm:text-lg text-slate-900">Recorded Tasks</h3>
-                  <p className="text-xs text-slate-500">Daily time entries and completed work sessions</p>
+                  <p className="text-xs text-slate-500 font-medium">Daily time entries and completed work sessions</p>
                 </div>
 
                 {projectBreakdown.length > 0 && (
                   <div className="flex items-center gap-2">
-                    <label className="text-xs font-semibold text-slate-600">Filter Project:</label>
+                    <label className="text-xs font-bold text-slate-600">Filter Project:</label>
                     <select
                       value={taskFilterProject}
                       onChange={(e) => setTaskFilterProject(e.target.value)}
-                      className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="clay-input px-3 py-1.5 text-xs font-medium"
                     >
                       <option value="">All Projects</option>
                       {projectBreakdown.map((p) => (
@@ -1168,7 +1168,7 @@ export default function Tracker() {
               </div>
 
               {/* Project Summary Strip */}
-              <div className="p-4 bg-slate-50/80 border border-slate-200/80 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="clay-inset-well p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Tracked Time:</span>
                   <span className="ml-2 font-mono text-base font-bold text-slate-900">{totalTaskFormatted}</span>
@@ -1179,10 +1179,10 @@ export default function Tracker() {
                     {projectBreakdown.map((pb, idx) => (
                       <span 
                         key={idx}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs text-slate-700"
+                        className="clay-card-flat inline-flex items-center gap-1.5 px-3 py-1 text-xs text-slate-700"
                       >
                         <span className="font-semibold text-slate-900">{pb.project_name}:</span>
-                        <span className="font-mono text-blue-600 font-bold">{pb.duration_formatted}</span>
+                        <span className="font-mono text-indigo-600 font-bold">{pb.duration_formatted}</span>
                       </span>
                     ))}
                   </div>
@@ -1191,9 +1191,9 @@ export default function Tracker() {
 
               {/* Tasks List */}
               {loadingTasks ? (
-                <div className="text-center py-8 text-slate-500 text-xs sm:text-sm">Loading task entries...</div>
+                <div className="text-center py-8 text-slate-500 text-xs sm:text-sm font-medium">Loading task entries...</div>
               ) : dailyTasks.length === 0 ? (
-                <div className="text-center py-10 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200 text-slate-500 text-xs sm:text-sm">
+                <div className="text-center py-10 clay-inset-well rounded-2xl border-dashed text-slate-500 text-xs sm:text-sm font-medium">
                   No tasks recorded for {selectedTaskDate}.
                 </div>
               ) : (
@@ -1206,20 +1206,20 @@ export default function Tracker() {
                         </span>
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200/70">
+                            <span className="clay-pill clay-pill-indigo text-[11px] py-0 px-2">
                               {t.project_name}
                             </span>
                             <h4 className="text-sm font-bold text-slate-900">{t.task_name}</h4>
-                            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                            <span className={`clay-pill text-[10px] py-0 px-2 ${
                               t.status === 'IN_PROGRESS' 
-                                ? 'bg-amber-50 text-amber-800 border border-amber-200' 
-                                : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                ? 'clay-pill-warning' 
+                                : 'clay-pill-success'
                             }`}>
                               {t.status === 'IN_PROGRESS' ? 'In Progress' : 'Completed'}
                             </span>
                           </div>
                           {t.description && (
-                            <p className="text-xs text-slate-600 mt-1">{t.description}</p>
+                            <p className="text-xs text-slate-600 mt-1 font-medium">{t.description}</p>
                           )}
                         </div>
                       </div>
@@ -1227,14 +1227,14 @@ export default function Tracker() {
                       <div className="flex items-center justify-between sm:justify-end gap-4 pl-9 sm:pl-0 shrink-0">
                         <div className="text-right">
                           <p className="font-mono text-xs font-bold text-slate-900">{t.duration_formatted}</p>
-                          <p className="text-[11px] text-slate-500">
+                          <p className="text-[11px] text-slate-500 font-medium">
                             {t.start_time_formatted} — {t.end_time_formatted}
                           </p>
                         </div>
 
                         <button
                           onClick={() => openEditModal(t)}
-                          className="px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-white text-slate-600 hover:text-slate-900 text-xs font-semibold transition"
+                          className="clay-btn clay-btn-secondary px-2.5 py-1 text-xs font-semibold rounded-lg"
                         >
                           Edit
                         </button>
@@ -1252,16 +1252,16 @@ export default function Tracker() {
       {/* MODAL 1: START WORKDAY WITH INITIAL TASK */}
       {/* ======================================================== */}
       {showStartWorkdayPrompt && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl">
-            <h3 className="text-lg font-bold text-slate-900">Start Workday</h3>
-            <p className="text-xs text-slate-500 mt-1 mb-5">
+        <div className="clay-modal-overlay">
+          <div className="clay-modal-dialog p-6 sm:p-8 max-w-md w-full">
+            <h3 className="text-xl font-bold text-slate-900 tracking-tight">Start Workday</h3>
+            <p className="text-xs text-slate-500 mt-1 mb-5 font-medium">
               Enter your initial project and task details to clock in.
             </p>
 
             <form onSubmit={submitStartWorkdayWithTask} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                   Project Name <span className="text-rose-500 font-bold">* Required</span>
                 </label>
                 <input
@@ -1270,12 +1270,12 @@ export default function Tracker() {
                   placeholder="e.g. Project Alpha"
                   value={taskForm.project_name}
                   onChange={(e) => setTaskForm({ ...taskForm, project_name: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition"
+                  className="clay-input w-full px-3.5 py-2.5 text-sm placeholder-slate-400 font-medium"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                   Task Name <span className="text-rose-500 font-bold">* Required</span>
                 </label>
                 <input
@@ -1284,35 +1284,35 @@ export default function Tracker() {
                   placeholder="e.g. Preparing client requirements"
                   value={taskForm.task_name}
                   onChange={(e) => setTaskForm({ ...taskForm, task_name: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition"
+                  className="clay-input w-full px-3.5 py-2.5 text-sm placeholder-slate-400 font-medium"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Description <span className="text-slate-400 font-normal">(Optional)</span>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                  Description <span className="text-slate-400 font-normal lowercase">(Optional)</span>
                 </label>
                 <textarea
                   rows={2}
                   placeholder="Brief details about the task..."
                   value={taskForm.description}
                   onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition"
+                  className="clay-input w-full p-3 text-sm placeholder-slate-400 font-medium"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200/60">
                 <button
                   type="button"
                   onClick={() => setShowStartWorkdayPrompt(false)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-semibold transition"
+                  className="clay-btn clay-btn-secondary px-4 py-2.5 text-xs sm:text-sm font-semibold rounded-xl"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={loadingAction}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 disabled:opacity-50 text-white text-xs sm:text-sm font-semibold shadow-xs transition"
+                  className="clay-btn clay-btn-success px-5 py-2.5 text-xs sm:text-sm font-semibold rounded-xl"
                 >
                   {loadingAction ? 'Starting...' : 'Start Work & Task'}
                 </button>
@@ -1326,16 +1326,16 @@ export default function Tracker() {
       {/* MODAL 2: START NEW TASK */}
       {/* ======================================================== */}
       {showNewTaskModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl">
-            <h3 className="text-lg font-bold text-slate-900">Start New Task</h3>
-            <p className="text-xs text-slate-500 mt-1 mb-5">
+        <div className="clay-modal-overlay">
+          <div className="clay-modal-dialog p-6 sm:p-8 max-w-md w-full">
+            <h3 className="text-xl font-bold text-slate-900 tracking-tight">Start New Task</h3>
+            <p className="text-xs text-slate-500 mt-1 mb-5 font-medium">
               Enter your project and task details to start tracking time.
             </p>
 
             <form onSubmit={handleStartNewTask} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                   Project Name <span className="text-rose-500 font-bold">* Required</span>
                 </label>
                 <input
@@ -1344,12 +1344,12 @@ export default function Tracker() {
                   placeholder="e.g. Website Redesign"
                   value={taskForm.project_name}
                   onChange={(e) => setTaskForm({ ...taskForm, project_name: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition"
+                  className="clay-input w-full px-3.5 py-2.5 text-sm placeholder-slate-400 font-medium"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                   Task Name <span className="text-rose-500 font-bold">* Required</span>
                 </label>
                 <input
@@ -1358,35 +1358,35 @@ export default function Tracker() {
                   placeholder="e.g. Building analytics page"
                   value={taskForm.task_name}
                   onChange={(e) => setTaskForm({ ...taskForm, task_name: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition"
+                  className="clay-input w-full px-3.5 py-2.5 text-sm placeholder-slate-400 font-medium"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Description <span className="text-slate-400 font-normal">(Optional)</span>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                  Description <span className="text-slate-400 font-normal lowercase">(Optional)</span>
                 </label>
                 <textarea
                   rows={2}
                   placeholder="Brief details about what you are working on..."
                   value={taskForm.description}
                   onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition"
+                  className="clay-input w-full p-3 text-sm placeholder-slate-400 font-medium"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200/60">
                 <button
                   type="button"
                   onClick={() => setShowNewTaskModal(false)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-semibold transition"
+                  className="clay-btn clay-btn-secondary px-4 py-2.5 text-xs sm:text-sm font-semibold rounded-xl"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={loadingAction}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 disabled:opacity-50 text-white text-xs sm:text-sm font-semibold shadow-xs transition"
+                  className="clay-btn clay-btn-primary px-5 py-2.5 text-xs sm:text-sm font-semibold rounded-xl"
                 >
                   {loadingAction ? 'Starting...' : 'Start Task'}
                 </button>
@@ -1400,21 +1400,21 @@ export default function Tracker() {
       {/* MODAL 3: END TASK / START NEXT TASK */}
       {/* ======================================================== */}
       {showEndAndNextModal && activeTask && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl">
-            <h3 className="text-lg font-bold text-slate-900">Switch to Next Task</h3>
-            <p className="text-xs text-slate-500 mt-1 mb-4">
+        <div className="clay-modal-overlay">
+          <div className="clay-modal-dialog p-6 sm:p-8 max-w-md w-full">
+            <h3 className="text-xl font-bold text-slate-900 tracking-tight">Switch to Next Task</h3>
+            <p className="text-xs text-slate-500 mt-1 mb-4 font-medium">
               Completes the active task and immediately begins your next one.
             </p>
 
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl mb-4 text-xs">
-              <span className="text-slate-500 font-medium">Currently Ending: </span>
+            <div className="clay-card-flat p-3.5 mb-4 text-xs font-medium">
+              <span className="text-slate-500">Currently Ending: </span>
               <span className="font-bold text-slate-900">{activeTask.task_name}</span> ({activeTask.project_name})
             </div>
 
             <form onSubmit={handleEndAndStartNext} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                   Next Project Name <span className="text-rose-500 font-bold">* Required</span>
                 </label>
                 <input
@@ -1423,12 +1423,12 @@ export default function Tracker() {
                   placeholder="e.g. Project Beta"
                   value={nextTaskForm.project_name}
                   onChange={(e) => setNextTaskForm({ ...nextTaskForm, project_name: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition"
+                  className="clay-input w-full px-3.5 py-2.5 text-sm placeholder-slate-400 font-medium"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                   Next Task Name <span className="text-rose-500 font-bold">* Required</span>
                 </label>
                 <input
@@ -1437,35 +1437,35 @@ export default function Tracker() {
                   placeholder="e.g. Drafting presentation"
                   value={nextTaskForm.task_name}
                   onChange={(e) => setNextTaskForm({ ...nextTaskForm, task_name: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition"
+                  className="clay-input w-full px-3.5 py-2.5 text-sm placeholder-slate-400 font-medium"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Description <span className="text-slate-400 font-normal">(Optional)</span>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                  Description <span className="text-slate-400 font-normal lowercase">(Optional)</span>
                 </label>
                 <textarea
                   rows={2}
                   placeholder="Description for the next task..."
                   value={nextTaskForm.description}
                   onChange={(e) => setNextTaskForm({ ...nextTaskForm, description: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition"
+                  className="clay-input w-full p-3 text-sm placeholder-slate-400 font-medium"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200/60">
                 <button
                   type="button"
                   onClick={() => setShowEndAndNextModal(false)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-semibold transition"
+                  className="clay-btn clay-btn-secondary px-4 py-2.5 text-xs sm:text-sm font-semibold rounded-xl"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={loadingAction}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 disabled:opacity-50 text-white text-xs sm:text-sm font-semibold shadow-xs transition"
+                  className="clay-btn clay-btn-primary px-5 py-2.5 text-xs sm:text-sm font-semibold rounded-xl"
                 >
                   {loadingAction ? 'Switching...' : 'Switch to Next Task'}
                 </button>
@@ -1479,14 +1479,14 @@ export default function Tracker() {
       {/* MODAL 4: EDIT TASK DETAILS */}
       {/* ======================================================== */}
       {showEditTaskModal && editingTask && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl">
-            <h3 className="text-lg font-bold text-slate-900">Edit Task Details</h3>
-            <p className="text-xs text-slate-500 mt-1 mb-4">
+        <div className="clay-modal-overlay">
+          <div className="clay-modal-dialog p-6 sm:p-8 max-w-md w-full">
+            <h3 className="text-xl font-bold text-slate-900 tracking-tight">Edit Task Details</h3>
+            <p className="text-xs text-slate-500 mt-1 mb-4 font-medium">
               Update project name, task title, or notes.
             </p>
 
-            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl mb-4 text-xs space-y-1">
+            <div className="clay-card-flat p-4 mb-4 text-xs space-y-1.5 font-medium">
               <div className="flex justify-between text-slate-600">
                 <span>Start Time:</span>
                 <span className="font-semibold text-slate-800">{editingTask.start_time_formatted}</span>
@@ -1497,7 +1497,7 @@ export default function Tracker() {
               </div>
               <div className="flex justify-between text-slate-600">
                 <span>Duration:</span>
-                <span className="font-bold text-blue-700 font-mono">{editingTask.duration_formatted}</span>
+                <span className="font-bold text-indigo-700 font-mono">{editingTask.duration_formatted}</span>
               </div>
               <p className="text-[11px] text-slate-400 pt-1">
                 Note: Server-recorded timestamps cannot be manually altered.
@@ -1506,7 +1506,7 @@ export default function Tracker() {
 
             <form onSubmit={submitEditTask} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                   Project Name <span className="text-rose-500 font-bold">* Required</span>
                 </label>
                 <input
@@ -1514,12 +1514,12 @@ export default function Tracker() {
                   required
                   value={editTaskForm.project_name}
                   onChange={(e) => setEditTaskForm({ ...editTaskForm, project_name: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition"
+                  className="clay-input w-full px-3.5 py-2.5 text-sm font-medium"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                   Task Name <span className="text-rose-500 font-bold">* Required</span>
                 </label>
                 <input
@@ -1527,34 +1527,34 @@ export default function Tracker() {
                   required
                   value={editTaskForm.task_name}
                   onChange={(e) => setEditTaskForm({ ...editTaskForm, task_name: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition"
+                  className="clay-input w-full px-3.5 py-2.5 text-sm font-medium"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                   Description
                 </label>
                 <textarea
                   rows={2}
                   value={editTaskForm.description}
                   onChange={(e) => setEditTaskForm({ ...editTaskForm, description: e.target.value })}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition"
+                  className="clay-input w-full p-3 text-sm font-medium"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200/60">
                 <button
                   type="button"
                   onClick={() => setShowEditTaskModal(false)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-semibold transition"
+                  className="clay-btn clay-btn-secondary px-4 py-2.5 text-xs sm:text-sm font-semibold rounded-xl"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={loadingAction}
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 disabled:opacity-50 text-white text-xs sm:text-sm font-semibold shadow-xs transition"
+                  className="clay-btn clay-btn-primary px-5 py-2.5 text-xs sm:text-sm font-semibold rounded-xl"
                 >
                   {loadingAction ? 'Saving...' : 'Save Changes'}
                 </button>
@@ -1568,23 +1568,23 @@ export default function Tracker() {
       {/* MODAL 5: CONFIRM END WORKDAY */}
       {/* ======================================================== */}
       {showEndModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-7 max-w-sm w-full shadow-2xl">
-            <h3 className="text-lg font-bold text-slate-900">End Workday?</h3>
-            <p className="text-xs text-slate-600 mt-2 mb-6 leading-relaxed">
+        <div className="clay-modal-overlay">
+          <div className="clay-modal-dialog p-6 sm:p-7 max-w-sm w-full">
+            <h3 className="text-xl font-bold text-slate-900 tracking-tight">End Workday?</h3>
+            <p className="text-xs text-slate-600 mt-2 mb-6 leading-relaxed font-medium">
               Are you sure you want to clock out? Once ended, your workday is recorded and locked for the day.
             </p>
             <div className="flex items-center justify-end gap-3">
               <button
                 onClick={() => setShowEndModal(false)}
-                className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs sm:text-sm font-semibold transition"
+                className="clay-btn clay-btn-secondary px-4 py-2.5 text-xs sm:text-sm font-semibold rounded-xl"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleAction('END_WORK')}
                 disabled={loadingAction}
-                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs sm:text-sm font-semibold shadow-xs transition"
+                className="clay-btn clay-btn-danger px-5 py-2.5 text-xs sm:text-sm font-semibold rounded-xl"
               >
                 {loadingAction ? 'Ending...' : 'Yes, End Workday'}
               </button>

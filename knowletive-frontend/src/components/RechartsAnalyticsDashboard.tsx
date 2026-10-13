@@ -263,46 +263,46 @@ export default function RechartsAnalyticsDashboard({
       )}
 
       {/* 2. Interactive Filters Bar (Period, Date Range, Employee, Project) */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-3">
+      <div className="clay-card p-4 sm:p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
           {/* Quick Period Selector */}
-          <div className="flex items-center gap-1.5 p-1 bg-slate-100/80 rounded-xl text-xs">
+          <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl text-xs font-bold">
             <button
               onClick={() => setPeriod('today')}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition ${
-                period === 'today' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+              className={`px-3 py-1.5 rounded-xl transition ${
+                period === 'today' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               Today
             </button>
             <button
               onClick={() => setPeriod('7d')}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition ${
-                period === '7d' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+              className={`px-3 py-1.5 rounded-xl transition ${
+                period === '7d' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               Last 7 Days
             </button>
             <button
               onClick={() => setPeriod('30d')}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition ${
-                period === '30d' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+              className={`px-3 py-1.5 rounded-xl transition ${
+                period === '30d' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               Last 30 Days
             </button>
             <button
               onClick={() => setPeriod('month')}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition ${
-                period === 'month' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+              className={`px-3 py-1.5 rounded-xl transition ${
+                period === 'month' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               This Month
             </button>
             <button
               onClick={() => setPeriod('custom')}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition ${
-                period === 'custom' ? 'bg-white text-blue-700 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+              className={`px-3 py-1.5 rounded-xl transition ${
+                period === 'custom' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               Custom Range
@@ -313,7 +313,7 @@ export default function RechartsAnalyticsDashboard({
           {(period !== '7d' || employeeId || projectFilter || startDate || endDate) && (
             <button
               onClick={handleClearFilters}
-              className="text-xs text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1.5 transition"
+              className="text-xs text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1.5 transition"
             >
               <RotateCcw size={12} />
               <span>Reset Filters</span>
@@ -334,7 +334,7 @@ export default function RechartsAnalyticsDashboard({
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 font-mono focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                  className="clay-input w-full text-xs font-mono"
                 />
               </div>
               <div>
@@ -345,13 +345,13 @@ export default function RechartsAnalyticsDashboard({
                   type="date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 font-mono focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                  className="clay-input w-full text-xs font-mono"
                 />
               </div>
             </>
           ) : (
-            <div className="sm:col-span-2 flex items-center gap-2 p-2 bg-slate-50 border border-slate-200/80 rounded-xl text-xs text-slate-600">
-              <Calendar size={15} className="text-blue-600 shrink-0" />
+            <div className="sm:col-span-2 flex items-center gap-2 p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl text-xs text-slate-600">
+              <Calendar size={15} className="text-indigo-600 shrink-0" />
               <span>
                 Active Window: <strong className="text-slate-900 font-mono">{data?.date_range.start_date || '...'}</strong> to{' '}
                 <strong className="text-slate-900 font-mono">{data?.date_range.end_date || '...'}</strong>
@@ -368,7 +368,7 @@ export default function RechartsAnalyticsDashboard({
               <select
                 value={employeeId}
                 onChange={(e) => setEmployeeId(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                className="clay-input w-full text-xs"
               >
                 <option value="">All Permitted Employees</option>
                 {data?.filters.employees.map((emp) => (
@@ -379,7 +379,7 @@ export default function RechartsAnalyticsDashboard({
               </select>
             </div>
           ) : (
-            <div className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200/80 rounded-xl text-xs text-slate-600">
+            <div className="flex items-center gap-2 p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl text-xs text-slate-600">
               <Users size={15} className="text-emerald-600 shrink-0" />
               <span>Role: <strong className="text-slate-900">Personal Employee Data Only</strong></span>
             </div>
@@ -397,9 +397,9 @@ export default function RechartsAnalyticsDashboard({
                 placeholder="All Projects or search..."
                 value={projectFilter}
                 onChange={(e) => setProjectFilter(e.target.value)}
-                className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                className="clay-input w-full pl-8 text-xs"
               />
-              <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+              <Search size={14} className="absolute left-2.5 top-3 text-slate-400" />
               <datalist id="projects-filter-datalist">
                 {data?.filters?.projects?.map((proj) => (
                   <option key={proj} value={proj} />
@@ -443,7 +443,7 @@ export default function RechartsAnalyticsDashboard({
 
       {/* 5. No Results / Empty State */}
       {hasNoRecords && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center shadow-xs">
+        <div className="clay-card p-10 text-center">
           <div className="w-16 h-16 mx-auto mb-3.5 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-center justify-center text-indigo-600">
             <Calendar size={30} />
           </div>
@@ -455,7 +455,7 @@ export default function RechartsAnalyticsDashboard({
           <div className="mt-5 flex justify-center gap-3">
             <button
               onClick={handleClearFilters}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center gap-2 transition"
+              className="clay-btn clay-btn-primary text-xs flex items-center gap-2"
             >
               <RotateCcw size={14} />
               <span>Reset All Filters</span>
@@ -470,29 +470,29 @@ export default function RechartsAnalyticsDashboard({
           {/* Summary Metric Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Card 1: Total Tracked Time */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-blue-300 transition">
+            <div className="clay-card-flat p-4 relative overflow-hidden group hover:border-indigo-300 transition">
               <div className="flex items-center justify-between text-slate-500 mb-1.5">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Tracked Work Time</span>
-                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shadow-2xs">
                   <Clock size={16} />
                 </div>
               </div>
               <p className="text-xl sm:text-2xl font-black text-slate-900 font-mono tracking-tight">
                 {formatHumanReadableDuration(summary.total_work_seconds || 0)}
               </p>
-              <div className="flex items-center gap-1.5 mt-2 text-[11px] text-slate-600">
-                <span className="font-semibold text-blue-600">Productive Time</span>
+              <div className="flex items-center gap-1.5 mt-2 text-[11px] text-slate-600 font-medium">
+                <span className="font-bold text-indigo-600">Productive Time</span>
                 <span className="text-slate-300">•</span>
                 <span>{summary.days_worked_count} day{summary.days_worked_count !== 1 ? 's' : ''} active</span>
               </div>
-              <div className="absolute bottom-0 left-0 right-0 h-1 bg-blue-600" />
+              <div className="absolute bottom-0 left-0 right-0 h-1 bg-indigo-600" />
             </div>
 
             {/* Card 2: Total Break Time */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-amber-300 transition">
+            <div className="clay-card-flat p-4 relative overflow-hidden group hover:border-amber-300 transition">
               <div className="flex items-center justify-between text-slate-500 mb-1.5">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-600">Total Break Time</span>
-                <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700">Total Break Time</span>
+                <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shadow-2xs">
                   <Coffee size={16} />
                 </div>
               </div>
@@ -500,16 +500,16 @@ export default function RechartsAnalyticsDashboard({
                 {formatHumanReadableDuration(summary.total_break_seconds || 0)}
               </p>
               <div className="flex items-center gap-1.5 mt-2 text-[11px] text-slate-600">
-                <span className="font-semibold text-amber-700">Pause sessions</span>
+                <span className="font-bold text-amber-700">Pause sessions</span>
               </div>
               <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500" />
             </div>
 
             {/* Card 3: Tasks Count */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-emerald-300 transition">
+            <div className="clay-card-flat p-4 relative overflow-hidden group hover:border-emerald-300 transition">
               <div className="flex items-center justify-between text-slate-500 mb-1.5">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700">Tasks Logged</span>
-                <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shadow-2xs">
                   <ListTodo size={16} />
                 </div>
               </div>
@@ -517,27 +517,27 @@ export default function RechartsAnalyticsDashboard({
                 {summary.total_tasks}
               </p>
               <div className="flex items-center gap-1.5 mt-2 text-[11px]">
-                <span className="text-emerald-700 font-semibold">{summary.completed_tasks} Completed</span>
+                <span className="text-emerald-700 font-bold">{summary.completed_tasks} Completed</span>
                 <span className="text-slate-300">•</span>
-                <span className="text-amber-700 font-semibold">{summary.in_progress_tasks} Active</span>
+                <span className="text-amber-700 font-bold">{summary.in_progress_tasks} Active</span>
               </div>
               <div className="absolute bottom-0 left-0 right-0 h-1 bg-emerald-500" />
             </div>
 
             {/* Card 4: Employees with Records / Projects Count */}
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs relative overflow-hidden group hover:border-teal-300 transition">
+            <div className="clay-card-flat p-4 relative overflow-hidden group hover:border-teal-300 transition">
               <div className="flex items-center justify-between text-slate-500 mb-1.5">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
                   {isAdmin ? 'Employees With Records' : 'Active Projects'}
                 </span>
-                <div className="w-8 h-8 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center shadow-2xs">
                   {isAdmin ? <Users size={16} /> : <FolderKanban size={16} />}
                 </div>
               </div>
               <p className="text-2xl font-black text-slate-900 tracking-tight">
                 {isAdmin ? (summary.employees_with_records ?? summary.employee_count) : summary.active_projects_count}
               </p>
-              <div className="flex items-center gap-1.5 mt-2 text-[11px] text-slate-500 truncate">
+              <div className="flex items-center gap-1.5 mt-2 text-[11px] text-slate-600 truncate font-medium">
                 {isAdmin ? (
                   <span>With active tracked sessions or tasks</span>
                 ) : (
@@ -549,18 +549,18 @@ export default function RechartsAnalyticsDashboard({
           </div>
 
           {/* Recharts Chart 1: Daily Work & Break Trends Over Time */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+          <div className="clay-card p-5 sm:p-6 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                  <TrendingUp size={16} className="text-blue-600" />
+                  <TrendingUp size={16} className="text-indigo-600" />
                   <span>Work & Break Hours Trend (Daily Breakdown)</span>
                 </h3>
                 <p className="text-xs text-slate-500">Tracked work time vs break duration over the selected period</p>
               </div>
               <div className="flex items-center gap-3 text-xs">
                 <span className="flex items-center gap-1.5 text-slate-600 font-medium">
-                  <span className="w-3 h-3 rounded bg-blue-600" />
+                  <span className="w-3 h-3 rounded bg-indigo-600" />
                   Work Hours
                 </span>
                 <span className="flex items-center gap-1.5 text-slate-600 font-medium">
@@ -575,8 +575,8 @@ export default function RechartsAnalyticsDashboard({
                 <AreaChart data={data.daily_trend} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorWork" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#2563eb" stopOpacity={0.35} />
-                      <stop offset="95%" stopColor="#2563eb" stopOpacity={0.0} />
+                      <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.0} />
                     </linearGradient>
                     <linearGradient id="colorBreak" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4} />
@@ -604,7 +604,7 @@ export default function RechartsAnalyticsDashboard({
                       const d = payload[0].payload as DailyTrendItem;
                       return (
                         <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl text-xs space-y-1">
-                          <p className="font-bold text-blue-300">
+                          <p className="font-bold text-indigo-300">
                             {d.date} ({d.day_name})
                           </p>
                           <div className="flex items-center justify-between gap-4">
@@ -626,7 +626,7 @@ export default function RechartsAnalyticsDashboard({
                   <Area
                     type="monotone"
                     dataKey="work_hours"
-                    stroke="#2563eb"
+                    stroke="#4f46e5"
                     strokeWidth={2.5}
                     fillOpacity={1}
                     fill="url(#colorWork)"
@@ -647,17 +647,17 @@ export default function RechartsAnalyticsDashboard({
           {/* Recharts Charts 2 & 3: Project Allocation (Donut) & Employee / Task Workload */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Chart 2: Project Allocation Breakdown (Donut Chart) - 6 cols */}
-            <div className="lg:col-span-6 bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+            <div className="lg:col-span-6 clay-card p-5 sm:p-6 flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                      <PieIcon size={16} className="text-blue-600" />
+                      <PieIcon size={16} className="text-indigo-600" />
                       <span>Project Time Allocation</span>
                     </h3>
                     <p className="text-xs text-slate-500">Tracked hours and relative share by project</p>
                   </div>
-                  <span className="px-2.5 py-1 bg-blue-50 border border-blue-100 rounded-lg text-[11px] font-mono font-bold text-blue-700">
+                  <span className="px-2.5 py-1 clay-pill bg-indigo-50 border-indigo-100 text-[11px] font-mono font-bold text-indigo-700">
                     {data.by_project.length} Project{data.by_project.length !== 1 ? 's' : ''}
                   </span>
                 </div>
@@ -690,7 +690,7 @@ export default function RechartsAnalyticsDashboard({
                               const p = payload[0].payload as ProjectBreakdownItem;
                               return (
                                 <div className="bg-slate-900 text-white p-2.5 rounded-xl shadow-xl text-xs space-y-1">
-                                  <p className="font-bold text-blue-300">{p.project_name}</p>
+                                  <p className="font-bold text-indigo-300">{p.project_name}</p>
                                   <p className="text-slate-200">
                                     Time: <strong className="font-mono text-emerald-400">{formatHumanReadableDuration(p.work_seconds || Math.round((p.work_hours || 0) * 3600))}</strong>
                                   </p>
@@ -747,14 +747,14 @@ export default function RechartsAnalyticsDashboard({
                 )}
               </div>
 
-              <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-medium">
                 <span>Hover pie slices to inspect exact hours</span>
-                <span className="font-mono text-slate-700 font-semibold">{summary.active_projects_count} Total Projects</span>
+                <span className="font-mono text-slate-700 font-bold">{summary.active_projects_count} Total Projects</span>
               </div>
             </div>
 
             {/* Chart 3: Employee Workload (Admin) OR Top Tasks Breakdown (Employee) - 6 cols */}
-            <div className="lg:col-span-6 bg-white border border-slate-200 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+            <div className="lg:col-span-6 clay-card p-5 sm:p-6 flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <div>
