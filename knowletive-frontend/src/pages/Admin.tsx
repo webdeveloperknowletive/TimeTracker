@@ -211,7 +211,7 @@ export default function Admin() {
     if (taskFilterEmpId) params.append('employee_id', taskFilterEmpId);
     if (taskFilterProject) params.append('project', taskFilterProject);
 
-    const url = `http://localhost:8000/api/admin/tasks/export/?${params.toString()}`;
+    const url = `${api.defaults.baseURL}/admin/tasks/export/?${params.toString()}`;
     fetch(url, {
       headers: { Authorization: `Token ${token}` }
     })
@@ -283,7 +283,7 @@ export default function Admin() {
     }
 
     const defaultFilename = `${empNamePrefix}_Time_Report_${dateRangeStr}.${format}`;
-    const url = `http://localhost:8000/api/admin/reports/export/?${params.toString()}`;
+    const url = `${api.defaults.baseURL}/admin/reports/export/?${params.toString()}`;
     
     fetch(url, {
       headers: { Authorization: `Token ${token}` }
