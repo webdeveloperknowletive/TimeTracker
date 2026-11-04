@@ -1,18 +1,30 @@
 // background.ts handles alarms for reminders
+const BG_DEFAULT_API_URL = 'https://timetracker-api.knowletive.in/api';
+const BG_DEFAULT_WEB_URL = 'https://timetracker.knowletive.in';
+
+async function getBgApiUrl(): Promise<string> {
+  const result = (await chrome.storage.local.get('api_url')) as { api_url?: string };
+  return (result.api_url || BG_DEFAULT_API_URL).trim().replace(/\/+$/, '');
+}
+
+async function getBgWebUrl(): Promise<string> {
+  const result = (await chrome.storage.local.get('web_url')) as { web_url?: string };
+  return (result.web_url || BG_DEFAULT_WEB_URL).trim().replace(/\/+$/, '');
+}
+
 chrome.runtime.onInstalled.addListener(() => {
-  // Setup daily alarms (simplified for demo, usually would check settings from backend)
   chrome.alarms.create('start-reminder', {
-    when: getNextTime(10, 0), // 10:00 AM
+    when: getBgNextTime(10, 0), // 10:00 AM
     periodInMinutes: 24 * 60
   });
 
   chrome.alarms.create('end-reminder', {
-    when: getNextTime(18, 50), // 6:50 PM (10 mins before 7 PM)
+    when: getBgNextTime(18, 50), // 6:50 PM (10 mins before 7 PM)
     periodInMinutes: 24 * 60
   });
 });
 
-function getNextTime(hour: number, minute: number): number {
+function getBgNextTime(hour: number, minute: number): number {
   const now = new Date();
   const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 0, 0);
   if (now.getTime() > target.getTime()) {
@@ -22,12 +34,12 @@ function getNextTime(hour: number, minute: number): number {
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  const { token } = await chrome.storage.local.get('token');
+  const { token } = (await chrome.storage.local.get('token')) as { token?: string };
   if (!token) return; // Not logged in
 
   try {
-    // Check status first
-    const res = await fetch('http://localhost:8000/api/tracker/status/', {
+    const apiUrl = await getBgApiUrl();
+    const res = await fetch(`${apiUrl}/tracker/status/`, {
       headers: {
         'Authorization': `Token ${token}`
       }
@@ -60,7 +72,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
-chrome.notifications.onButtonClicked.addListener((notificationId) => {
-  // Open dashboard when button clicked
-  chrome.tabs.create({ url: 'http://localhost:5173' });
+chrome.notifications.onButtonClicked.addListener(async () => {
+  const webUrl = await getBgWebUrl();
+  chrome.tabs.create({ url: webUrl });
 });

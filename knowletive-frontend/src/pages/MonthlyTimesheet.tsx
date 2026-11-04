@@ -230,7 +230,7 @@ export default function MonthlyTimesheet() {
     if (filterProject) params.append('project', filterProject);
     if (filterTask) params.append('task', filterTask);
 
-    const url = `http://localhost:8000/api/timesheet/export/?${params.toString()}`;
+    const url = `${api.defaults.baseURL}/timesheet/export/?${params.toString()}`;
     fetch(url, {
       headers: { Authorization: `Token ${token}` }
     })

@@ -1,6 +1,18 @@
-const API_URL = 'http://localhost:8000/api';
+const POPUP_DEFAULT_API_URL = 'https://timetracker-api.knowletive.in/api';
+const POPUP_DEFAULT_WEB_URL = 'https://timetracker.knowletive.in';
+
+async function getPopupApiUrl(): Promise<string> {
+  const result = (await chrome.storage.local.get('api_url')) as { api_url?: string };
+  return (result.api_url || POPUP_DEFAULT_API_URL).trim().replace(/\/+$/, '');
+}
+
+async function getPopupWebUrl(): Promise<string> {
+  const result = (await chrome.storage.local.get('web_url')) as { web_url?: string };
+  return (result.web_url || POPUP_DEFAULT_WEB_URL).trim().replace(/\/+$/, '');
+}
 
 async function fetchAPI(endpoint: string, options: RequestInit = {}) {
+  const baseUrl = await getPopupApiUrl();
   const { token } = await chrome.storage.local.get('token');
   const headers = new Headers(options.headers);
   headers.set('Content-Type', 'application/json');
@@ -19,7 +31,7 @@ async function fetchAPI(endpoint: string, options: RequestInit = {}) {
   }
   
   try {
-    const res = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+    const res = await fetch(`${baseUrl}${endpoint}`, { ...options, headers });
     let data: any = {};
     try {
       data = await res.json();
@@ -47,6 +59,14 @@ function formatDuration(totalSeconds: number): string {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // Sync web URLs dynamically
+  try {
+    const webBase = await getPopupWebUrl();
+    document.querySelectorAll<HTMLAnchorElement>('a[data-path]').forEach((link) => {
+      const path = link.getAttribute('data-path') || '';
+      link.href = `${webBase}${path}`;
+    });
+  } catch {}
   // Views
   const authView = document.getElementById('auth-view')!;
   const trackerView = document.getElementById('tracker-view')!;

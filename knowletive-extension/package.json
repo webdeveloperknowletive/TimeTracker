@@ -1,10 +1,11 @@
 {
   "name": "knowletive-extension",
   "version": "1.0.0",
-  "description": "",
+  "description": "Employee time tracking for Knowletive.",
   "main": "index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node package-extension.js",
+    "package": "node package-extension.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

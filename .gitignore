@@ -6,5 +6,6 @@ __pycache__/
 db.sqlite3
 .DS_Store
 dist/
+!knowletive-extension/dist/
 build/
 coverage/

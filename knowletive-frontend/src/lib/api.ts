@@ -1,10 +1,20 @@
 import axios from 'axios';
 
-// Set VITE_API_BASE_URL in Coolify to the backend origin, without /api.
-// Example: https://timetracker-api.knowletive.in
-const API_ORIGIN = (
-  import.meta.env.VITE_API_BASE_URL || 'https://timetracker-api.knowletive.in'
-).trim().replace(/\/+$/, '');
+// Resolve backend origin:
+// 1. Explicit VITE_API_BASE_URL (set in Dockerfile / Coolify build env).
+// 2. If running locally on localhost/127.0.0.1, connect to local backend (http://localhost:8000).
+// 3. Deployed production fallback (https://timetracker-api.knowletive.in).
+const resolveApiOrigin = (): string => {
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    return 'http://localhost:8000';
+  }
+  return 'https://timetracker-api.knowletive.in';
+};
+
+const API_ORIGIN = resolveApiOrigin().trim().replace(/\/+$/, '');
 
 const api = axios.create({
   baseURL: `${API_ORIGIN}/api`,

@@ -11,7 +11,8 @@ from datetime import datetime, timezone, timedelta, date
 from django.db import models
 from django.core.cache import cache
 from django.contrib.auth import authenticate
-from django.http import HttpResponse
+from django.http import HttpResponse, FileResponse
+from django.conf import settings
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
@@ -5634,7 +5635,44 @@ def project_task_reopen_view(request, task_id):
         'project_status': project.compute_status()
     })
 
+# ==========================================
+# CHROME EXTENSION DISTRIBUTION
+# ==========================================
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def extension_version_view(request):
+    """
+    Returns version and configuration metadata for the Knowletive Chrome Extension.
+    """
+    return Response({
+        'version': '1.0.0',
+        'api_url': 'https://timetracker-api.knowletive.in/api',
+        'web_url': 'https://timetracker.knowletive.in',
+        'download_url': '/knowletive-extension.zip',
+        'package_name': 'knowletive-extension.zip'
+    })
 
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def extension_download_view(request):
+    """
+    Serves the pre-configured Knowletive Chrome Extension zip file.
+    """
+    possible_paths = [
+        settings.BASE_DIR / 'tracker' / 'static' / 'knowletive-extension.zip',
+        settings.BASE_DIR.parent / 'knowletive-frontend' / 'public' / 'knowletive-extension.zip',
+        settings.BASE_DIR / 'knowletive-extension.zip',
+    ]
+    for p in possible_paths:
+        if p.exists():
+            with open(p, 'rb') as f:
+                content = f.read()
+            resp = HttpResponse(content, content_type='application/zip')
+            resp['Content-Disposition'] = 'attachment; filename="knowletive-extension.zip"'
+            resp['Content-Length'] = len(content)
+            return resp
 
+    return Response({'error': 'Extension package not found. Please contact administrator.'}, status=404)
 

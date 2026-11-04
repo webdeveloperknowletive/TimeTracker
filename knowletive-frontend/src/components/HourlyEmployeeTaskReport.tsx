@@ -233,7 +233,7 @@ export default function HourlyEmployeeTaskReport({
     if (filterProject) params.append('project', filterProject);
     if (filterSlot && filterSlot !== 'all') params.append('slot', filterSlot);
 
-    const url = `http://localhost:8000/api/admin/tasks/hourly-report/export/?${params.toString()}`;
+    const url = `${api.defaults.baseURL}/admin/tasks/hourly-report/export/?${params.toString()}`;
     fetch(url, {
       headers: { Authorization: `Token ${token}` }
     })

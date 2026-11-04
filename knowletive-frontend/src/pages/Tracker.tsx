@@ -6,7 +6,7 @@ import {
   Plus, Edit2, Check, ArrowRight,
   Clock, Shield, X, TrendingUp, Coffee,
   CheckCircle2, Briefcase, ListTodo,
-  RotateCcw, MessageSquare
+  RotateCcw, MessageSquare, Download, Puzzle
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import api from '../lib/api';
@@ -53,6 +53,7 @@ export default function Tracker() {
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [successMsg, setSuccessMsg] = useState<string>('');
   const [reminderDismissed, setReminderDismissed] = useState<boolean>(false);
+  const [showExtensionModal, setShowExtensionModal] = useState<boolean>(false);
   const [notificationEnabled, setNotificationEnabled] = useState<boolean>(
     typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
   );
@@ -795,6 +796,15 @@ export default function Tracker() {
           )}
 
           <button
+            onClick={() => setShowExtensionModal(true)}
+            className="clay-btn clay-btn-secondary px-3 py-2 text-xs font-semibold rounded-xl"
+            title="Download Chrome Extension for desktop tracking"
+          >
+            <Puzzle size={14} className="text-indigo-600" />
+            <span className="hidden sm:inline">Extension</span>
+          </button>
+
+          <button
             onClick={requestNotificationPermission}
             title={notificationEnabled ? 'Notifications enabled' : 'Enable notifications'}
             className={`clay-btn p-2 rounded-xl transition ${
@@ -881,6 +891,40 @@ export default function Tracker() {
             </button>
           </div>
         )}
+
+        {/* Quick Chrome Extension Download Banner */}
+        <div className="clay-card-flat px-4 py-3 bg-gradient-to-r from-indigo-50/80 via-white to-sky-50/80 border border-indigo-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-2xl">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Puzzle size={18} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-bold text-slate-800">Knowletive Chrome Extension</p>
+                <span className="clay-pill clay-pill-indigo text-[10px] py-0 px-1.5 font-bold">v1.0.0</span>
+              </div>
+              <p className="text-[11px] text-slate-500 font-medium">
+                Track attendance and work sessions from any browser tab with centralized sync.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+            <button
+              onClick={() => setShowExtensionModal(true)}
+              className="clay-btn clay-btn-secondary text-xs px-3 py-1.5 rounded-xl font-medium"
+            >
+              How to Install
+            </button>
+            <a
+              href="/knowletive-extension.zip"
+              download="knowletive-extension.zip"
+              className="clay-btn clay-btn-primary text-xs px-3 py-1.5 rounded-xl font-semibold flex items-center gap-1.5 shadow-xs"
+            >
+              <Download size={13} />
+              <span>Download Extension</span>
+            </a>
+          </div>
+        </div>
 
         {/* 3. HERO WORKDAY STATUS CARD (Claymorphic) */}
         <div className="clay-card p-6 sm:p-8 relative">
@@ -2048,6 +2092,90 @@ export default function Tracker() {
       {/* ======================================================== */}
       {/* MODAL 7: ADD PROGRESS NOTE */}
       {/* ======================================================== */}
+      {/* ======================================================== */}
+      {/* MODAL: CHROME EXTENSION DOWNLOAD & INSTRUCTIONS */}
+      {/* ======================================================== */}
+      {showExtensionModal && (
+        <div className="clay-modal-overlay">
+          <div className="clay-modal-dialog p-6 sm:p-7 max-w-lg w-full">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                  <Puzzle size={18} />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">Knowletive Chrome Extension</h3>
+                  <p className="text-[11px] text-slate-500 font-medium">Centralized Time Tracking for Google Chrome & Brave</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowExtensionModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="my-5 space-y-4">
+              <div className="p-3.5 bg-indigo-50/80 border border-indigo-100 rounded-xl space-y-1 text-xs">
+                <div className="flex items-center justify-between font-bold text-indigo-950">
+                  <span>Backend Connection</span>
+                  <span className="clay-pill clay-pill-emerald text-[10px] py-0 px-1.5">Production Centralized</span>
+                </div>
+                <p className="text-[11px] text-indigo-700 font-mono break-all">
+                  https://timetracker-api.knowletive.in
+                </p>
+                <p className="text-[11px] text-slate-600 pt-1">
+                  Pre-configured to sync all work sessions, breaks, and daily progress to the central database.
+                </p>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2">Step-by-Step Installation</h4>
+                <ol className="text-xs text-slate-600 space-y-2 list-decimal list-inside font-medium leading-relaxed">
+                  <li>
+                    <strong>Download</strong> the extension package using the button below and extract the ZIP file on your computer.
+                  </li>
+                  <li>
+                    Open Google Chrome and navigate to <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-indigo-600 text-[11px]">chrome://extensions</span> in your address bar.
+                  </li>
+                  <li>
+                    Toggle <strong>Developer mode</strong> ON in the top right corner.
+                  </li>
+                  <li>
+                    Click the <strong>Load unpacked</strong> button in the top left and select the extracted folder.
+                  </li>
+                  <li>
+                    Click the Knowletive puzzle icon on your Chrome toolbar, sign in with your employee email/username, and begin tracking!
+                  </li>
+                </ol>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+              <span className="text-[11px] text-slate-400 font-medium">Package: knowletive-extension.zip (v1.0.0)</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowExtensionModal(false)}
+                  className="clay-btn clay-btn-secondary px-4 py-2 text-xs font-semibold rounded-xl"
+                >
+                  Close
+                </button>
+                <a
+                  href="/knowletive-extension.zip"
+                  download="knowletive-extension.zip"
+                  className="clay-btn clay-btn-primary px-4 py-2 text-xs font-semibold rounded-xl flex items-center gap-1.5"
+                >
+                  <Download size={14} />
+                  <span>Download Extension (.zip)</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showNoteModal && (
         <div className="clay-modal-overlay">
           <div className="clay-modal-dialog p-6 sm:p-7 max-w-md w-full">

@@ -65,14 +65,18 @@ DEBUG = os.environ.get("DEBUG", "False").strip().lower() in (
 )
 
 
+_default_hosts = "timetracker-api.knowletive.in,timetracker.knowletive.in,localhost,127.0.0.1"
+_configured_hosts = os.environ.get("ALLOWED_HOSTS", "").strip()
 ALLOWED_HOSTS = [
     host.strip()
-    for host in os.environ.get(
-        "ALLOWED_HOSTS",
-        "localhost,127.0.0.1",
-    ).split(",")
+    for host in (_configured_hosts or _default_hosts).split(",")
     if host.strip()
 ]
+for _h in ["timetracker-api.knowletive.in", "timetracker.knowletive.in", "localhost", "127.0.0.1", "testserver"]:
+    if _h not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(_h)
+
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 
 # ============================================================
@@ -249,27 +253,42 @@ CORS_ALLOW_ALL_ORIGINS = (
 )
 
 
-CORS_ALLOWED_ORIGINS = [
+_default_cors_origins = [
+    "https://timetracker.knowletive.in",
+    "https://timetracker-api.knowletive.in",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+]
+_env_cors = [
     origin.strip().rstrip("/")
-    for origin in os.environ.get(
-        "CORS_ALLOWED_ORIGINS",
-        "",
-    ).split(",")
+    for origin in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",")
     if origin.strip()
 ]
+CORS_ALLOWED_ORIGINS = list(dict.fromkeys(_default_cors_origins + _env_cors))
+
+# Chrome Extension origin support (Origin: chrome-extension://<id>)
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^chrome-extension://.*$",
+]
+CORS_ALLOW_CREDENTIALS = True
 
 
-# Optional: configure if the application uses Django CSRF protection
-# across the listed trusted origins.
-
-CSRF_TRUSTED_ORIGINS = [
+# CSRF Trusted Origins
+_default_csrf = [
+    "https://timetracker.knowletive.in",
+    "https://timetracker-api.knowletive.in",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+]
+_env_csrf = [
     origin.strip().rstrip("/")
-    for origin in os.environ.get(
-        "CSRF_TRUSTED_ORIGINS",
-        "",
-    ).split(",")
+    for origin in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",")
     if origin.strip()
 ]
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(_default_csrf + _env_csrf))
 
 
 # ============================================================
