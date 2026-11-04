@@ -359,14 +359,14 @@ export default function MonthlyTimesheet() {
           <div className="flex items-center gap-2.5">
             <button
               onClick={handlePrevMonth}
-              className="clay-btn clay-btn-secondary p-2 rounded-xl"
+              className="clay-btn clay-btn-icon clay-btn-secondary"
               title="Previous Month"
             >
               <ChevronLeft size={18} />
             </button>
 
             <div className="flex items-center gap-2">
-              <Calendar size={18} className="text-indigo-600" />
+              <Calendar size={18} className="text-indigo-600 shrink-0" />
               <select
                 value={currentMonth}
                 onChange={(e) => {
@@ -374,7 +374,7 @@ export default function MonthlyTimesheet() {
                   setDirtyRows({});
                   setCurrentMonth(parseInt(e.target.value));
                 }}
-                className="clay-input px-3 py-1.5 text-sm text-slate-800 font-bold"
+                className="clay-input text-sm text-slate-800 font-bold min-w-[130px]"
               >
                 {MONTH_NAMES.map((name, i) => (
                   <option key={i + 1} value={i + 1}>{name}</option>
@@ -388,7 +388,7 @@ export default function MonthlyTimesheet() {
                   setDirtyRows({});
                   setCurrentYear(parseInt(e.target.value));
                 }}
-                className="clay-input px-3 py-1.5 text-sm text-slate-800 font-bold"
+                className="clay-input text-sm text-slate-800 font-bold min-w-[100px]"
               >
                 <option value={2025}>2025</option>
                 <option value={2026}>2026</option>
@@ -398,7 +398,7 @@ export default function MonthlyTimesheet() {
 
             <button
               onClick={handleNextMonth}
-              className="clay-btn clay-btn-secondary p-2 rounded-xl"
+              className="clay-btn clay-btn-icon clay-btn-secondary"
               title="Next Month"
             >
               <ChevronRight size={18} />
@@ -417,7 +417,7 @@ export default function MonthlyTimesheet() {
                     setDirtyRows({});
                     setSelectedUserId(e.target.value);
                   }}
-                  className="clay-input px-3 py-1.5 text-xs text-slate-800 font-bold"
+                  className="clay-input text-sm text-slate-800 font-bold min-w-[200px]"
                 >
                   {employeesList.map((emp) => (
                     <option key={emp.id} value={emp.id}>
@@ -430,13 +430,13 @@ export default function MonthlyTimesheet() {
 
             {/* Filter by project/task */}
             <div className="relative">
-              <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
+              <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Filter Project..."
                 value={filterProject}
                 onChange={(e) => setFilterProject(e.target.value)}
-                className="clay-input pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 w-32 focus:w-44 transition-all"
+                className="clay-input has-icon-left pl-11 pr-3 text-sm text-slate-800 placeholder-slate-400 min-w-[150px] w-36 focus:w-48 min-h-[44px] transition-all"
               />
             </div>
 
@@ -446,7 +446,7 @@ export default function MonthlyTimesheet() {
                 placeholder="Filter Task..."
                 value={filterTask}
                 onChange={(e) => setFilterTask(e.target.value)}
-                className="clay-input px-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 w-28 focus:w-36 transition-all"
+                className="clay-input px-3.5 text-sm text-slate-800 placeholder-slate-400 min-w-[140px] w-32 focus:w-44 transition-all"
               />
             </div>
           </div>
@@ -574,7 +574,7 @@ export default function MonthlyTimesheet() {
                           placeholder="e.g. Knowletive"
                           value={row.project_name || ''}
                           onChange={(e) => handleFieldChange(row.date, 'project_name', e.target.value)}
-                          className="clay-input w-full px-2.5 py-1.5 text-xs text-slate-900 placeholder-slate-400 font-medium"
+                          className="clay-input clay-input-dense w-full px-2.5 py-1 text-xs text-slate-900 placeholder-slate-400 font-medium"
                         />
                       </td>
 
@@ -585,7 +585,7 @@ export default function MonthlyTimesheet() {
                           placeholder="e.g. Website"
                           value={row.task_name || ''}
                           onChange={(e) => handleFieldChange(row.date, 'task_name', e.target.value)}
-                          className="clay-input w-full px-2.5 py-1.5 text-xs text-slate-900 placeholder-slate-400 font-medium"
+                          className="clay-input clay-input-dense w-full px-2.5 py-1 text-xs text-slate-900 placeholder-slate-400 font-medium"
                         />
                       </td>
 
@@ -596,7 +596,7 @@ export default function MonthlyTimesheet() {
                           placeholder="What did you work on today?"
                           value={row.work_description || ''}
                           onChange={(e) => handleFieldChange(row.date, 'work_description', e.target.value)}
-                          className="clay-input w-full px-2.5 py-1.5 text-xs text-slate-900 placeholder-slate-400 font-medium"
+                          className="clay-input clay-input-dense w-full px-2.5 py-1 text-xs text-slate-900 placeholder-slate-400 font-medium"
                         />
                       </td>
 

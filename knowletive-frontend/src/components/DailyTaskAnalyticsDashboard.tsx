@@ -54,17 +54,22 @@ export interface ProjectEmployeeSummary {
   tasks_count: number;
 }
 
+import TaskCountSummaryCards from './TaskCountSummaryCards';
+import type { TaskCountsData, TaskCountFilterKey } from './TaskCountSummaryCards';
+
 export interface TaskReportData {
   date: string;
   tasks: TaskRecord[];
   by_employee: EmployeeSummary[];
   by_project_and_employee: ProjectEmployeeSummary[];
+  task_counts?: TaskCountsData;
   summary: {
     total_tasks: number;
     active_in_progress: number;
     completed: number;
     total_seconds: number;
     total_hours: number;
+    task_counts?: TaskCountsData;
   };
 }
 
@@ -76,6 +81,8 @@ interface Props {
   onClearFilters: () => void;
   onSetToday: () => void;
   isLoading?: boolean;
+  cardFilter?: TaskCountFilterKey | null;
+  onSelectCardFilter?: (filter: TaskCountFilterKey | null) => void;
 }
 
 // Consistent palette for projects and categories
@@ -110,7 +117,9 @@ export default function DailyTaskAnalyticsDashboard({
   filterProject,
   onClearFilters,
   onSetToday,
-  isLoading
+  isLoading,
+  cardFilter = null,
+  onSelectCardFilter = () => {}
 }: Props) {
   const [activeProjectHover, setActiveProjectHover] = useState<string | null>(null);
   const [activeHourHover, setActiveHourHover] = useState<number | null>(null);
@@ -340,6 +349,26 @@ export default function DailyTaskAnalyticsDashboard({
 
   return (
     <div className="space-y-6">
+      {/* 0. Lifecycle & Activity Task Count Summary Cards */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+            <Sparkles size={14} className="text-indigo-600" />
+            <span>Task-Count Summary ({formattedDisplayDate})</span>
+          </span>
+          <span className="text-[11px] text-slate-500 font-medium hidden sm:inline">
+            Click any card to filter tasks below
+          </span>
+        </div>
+        <TaskCountSummaryCards
+          taskCounts={data.task_counts || data.summary?.task_counts}
+          activeFilter={cardFilter}
+          onSelectFilter={onSelectCardFilter}
+          isLoading={isLoading}
+          contextLabel={`for ${formattedDisplayDate}`}
+        />
+      </div>
+
       {/* 1. Real-Time Analysis Highlight Banner */}
       <div className="clay-card bg-gradient-to-r from-indigo-50/80 via-teal-50/50 to-white/95 border-indigo-100/80 p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-start sm:items-center gap-3.5">

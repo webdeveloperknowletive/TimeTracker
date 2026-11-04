@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Clock, AlertCircle, ArrowRight, User, Lock, Sparkles } from 'lucide-react';
+import { Clock, AlertCircle, ArrowRight, User, Lock, Sparkles, Eye, EyeOff } from 'lucide-react';
 import api from '../lib/api';
 
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -90,9 +91,9 @@ export default function Login() {
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                 Username or Email
               </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <User size={16} />
+              <div className="relative flex items-center">
+                <div className="absolute left-3.5 flex items-center pointer-events-none text-slate-400">
+                  <User size={18} />
                 </div>
                 <input
                   type="text"
@@ -101,7 +102,7 @@ export default function Login() {
                   placeholder="Enter your username or email"
                   required
                   autoComplete="username"
-                  className="clay-input w-full pl-10 pr-3.5 py-3 text-sm placeholder-slate-400 font-medium"
+                  className="clay-input has-icon-left w-full pl-11 pr-3.5 text-sm placeholder-slate-400 font-medium min-h-[44px]"
                 />
               </div>
             </div>
@@ -110,19 +111,27 @@ export default function Login() {
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                 Password
               </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Lock size={16} />
+              <div className="relative flex items-center">
+                <div className="absolute left-3.5 flex items-center pointer-events-none text-slate-400">
+                  <Lock size={18} />
                 </div>
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   required
                   autoComplete="current-password"
-                  className="clay-input w-full pl-10 pr-3.5 py-3 text-sm placeholder-slate-400 font-medium"
+                  className="clay-input has-icons-both w-full pl-11 pr-11 text-sm placeholder-slate-400 font-medium min-h-[44px]"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer p-0.5 transition-colors"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
 

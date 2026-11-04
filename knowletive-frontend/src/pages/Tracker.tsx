@@ -5,13 +5,15 @@ import {
   Calendar, Info, AlertTriangle, ShieldCheck,
   Plus, Edit2, Check, ArrowRight,
   Clock, Shield, X, TrendingUp, Coffee,
-  CheckCircle2, Briefcase, ListTodo
+  CheckCircle2, Briefcase, ListTodo,
+  RotateCcw, MessageSquare
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import api from '../lib/api';
 import DailyTaskAnalyticsDashboard from '../components/DailyTaskAnalyticsDashboard';
+import EmployeeProjectTasks from '../components/EmployeeProjectTasks';
 
-import { formatDigitalDuration } from '../utils/formatters';
+import { formatDigitalDuration, formatDisplayDate } from '../utils/formatters';
 
 function formatReadableTime(isoStr: string | null): string {
   if (!isoStr) return '--:--';
@@ -63,7 +65,7 @@ export default function Tracker() {
   const [totalTaskFormatted, setTotalTaskFormatted] = useState<string>('0 sec');
   const [projectBreakdown, setProjectBreakdown] = useState<any[]>([]);
   const [loadingTasks, setLoadingTasks] = useState<boolean>(false);
-  const [workViewMode, setWorkViewMode] = useState<'tasks' | 'analytics'>('tasks');
+  const [workViewMode, setWorkViewMode] = useState<'projects' | 'tasks' | 'analytics'>('projects');
   const [taskFilterProject, setTaskFilterProject] = useState<string>('');
   const [taskReportData, setTaskReportData] = useState<any>({
     date: getTodayIsoDate(),
@@ -80,17 +82,40 @@ export default function Tracker() {
   const [showEditTaskModal, setShowEditTaskModal] = useState<boolean>(false);
   const [editingTask, setEditingTask] = useState<any | null>(null);
 
+  // Reopen Task Modal
+  const [showReopenModal, setShowReopenModal] = useState<boolean>(false);
+  const [reopenTargetTaskId, setReopenTargetTaskId] = useState<string>('');
+  const [reopenReason, setReopenReason] = useState<string>('');
+
+  // Progress Note Modal
+  const [showNoteModal, setShowNoteModal] = useState<boolean>(false);
+  const [noteTargetTaskId, setNoteTargetTaskId] = useState<string>('');
+  const [noteContent, setNoteContent] = useState<string>('');
+
+  // Project & Task Suggestions
+  const [existingProjects, setExistingProjects] = useState<any[]>([]);
+  const [unfinishedTasks, setUnfinishedTasks] = useState<any[]>([]);
+
   // Form states
-  const [taskForm, setTaskForm] = useState({
+  interface TaskFormData {
+    project_name: string;
+    task_name: string;
+    description: string;
+    project_task_id?: string;
+  }
+
+  const [taskForm, setTaskForm] = useState<TaskFormData>({
     project_name: '',
     task_name: '',
-    description: ''
+    description: '',
+    project_task_id: ''
   });
 
-  const [nextTaskForm, setNextTaskForm] = useState({
+  const [nextTaskForm, setNextTaskForm] = useState<TaskFormData>({
     project_name: '',
     task_name: '',
-    description: ''
+    description: '',
+    project_task_id: ''
   });
 
   const [editTaskForm, setEditTaskForm] = useState({
@@ -109,6 +134,12 @@ export default function Tracker() {
   }, []);
 
   const isAdmin = user.role === 'ADMIN';
+
+  useEffect(() => {
+    if (isAdmin) {
+      navigate('/admin', { replace: true });
+    }
+  }, [isAdmin, navigate]);
 
   const fetchStatus = async () => {
     try {
@@ -202,10 +233,23 @@ export default function Tracker() {
     }
   };
 
+  const fetchProjectSuggestions = async () => {
+    try {
+      const res = await api.get('/projects/');
+      setExistingProjects(res.data.projects || []);
+      const tasksRes = await api.get('/tasks/my-tasks/?status=IN_PROGRESS&all_history=true');
+      setUnfinishedTasks(tasksRes.data.tasks || []);
+    } catch {
+      // Ignore
+    }
+  };
+
   useEffect(() => {
     fetchStatus();
     fetchDailyTasks(selectedTaskDate, taskFilterProject);
+    fetchProjectSuggestions();
     const syncInterval = setInterval(() => {
+      if (document.hidden) return; // Pause sync polling when tab is hidden
       fetchStatus();
       fetchDailyTasks(selectedTaskDate, taskFilterProject);
     }, 30000);
@@ -324,8 +368,10 @@ export default function Tracker() {
     setTaskForm({
       project_name: '',
       task_name: '',
-      description: ''
+      description: '',
+      project_task_id: ''
     });
+    fetchProjectSuggestions();
     setShowStartWorkdayPrompt(true);
   };
 
@@ -345,7 +391,8 @@ export default function Tracker() {
       await api.post('/tasks/start/', {
         project_name: taskForm.project_name.trim(),
         task_name: taskForm.task_name.trim(),
-        description: taskForm.description.trim()
+        description: taskForm.description.trim(),
+        project_task_id: taskForm.project_task_id || undefined
       });
 
       setShowStartWorkdayPrompt(false);
@@ -353,6 +400,7 @@ export default function Tracker() {
       setTimeout(() => setSuccessMsg(''), 4000);
       await fetchStatus();
       await fetchDailyTasks();
+      await fetchProjectSuggestions();
     } catch (err: any) {
       setErrorMsg(err.response?.data?.error || 'Failed to start workday. Please retry.');
     } finally {
@@ -376,14 +424,16 @@ export default function Tracker() {
       await api.post('/tasks/start/', {
         project_name: taskForm.project_name.trim(),
         task_name: taskForm.task_name.trim(),
-        description: taskForm.description.trim()
+        description: taskForm.description.trim(),
+        project_task_id: taskForm.project_task_id || undefined
       });
       setShowNewTaskModal(false);
-      setTaskForm({ project_name: '', task_name: '', description: '' });
+      setTaskForm({ project_name: '', task_name: '', description: '', project_task_id: '' });
       setSuccessMsg('Task started successfully.');
       setTimeout(() => setSuccessMsg(''), 4000);
       await fetchStatus();
       await fetchDailyTasks();
+      await fetchProjectSuggestions();
     } catch (err: any) {
       setErrorMsg(err.response?.data?.error || 'Failed to start task.');
     } finally {
@@ -391,25 +441,157 @@ export default function Tracker() {
     }
   };
 
-  // End active task
-  const handleEndActiveTask = async () => {
+  // Stop active task timer (Leaves task In Progress)
+  const handleStopActiveTask = async () => {
     if (!activeTask) return;
     setLoadingAction(true);
     setErrorMsg('');
     setSuccessMsg('');
 
     try {
-      await api.post('/tasks/end/', { task_log_id: activeTask.task_log_id });
-      setSuccessMsg(`Task "${activeTask.task_name}" completed.`);
+      await api.post('/tasks/end/', { 
+        task_log_id: activeTask.task_log_id,
+        is_completed: false 
+      });
+      setSuccessMsg(`Task "${activeTask.task_name}" stopped. Status remains In Progress.`);
       setTimeout(() => setSuccessMsg(''), 4000);
       await fetchStatus();
       await fetchDailyTasks();
+      await fetchProjectSuggestions();
     } catch (err: any) {
-      setErrorMsg(err.response?.data?.error || 'Failed to end task.');
+      setErrorMsg(err.response?.data?.error || 'Failed to stop task.');
     } finally {
       setLoadingAction(false);
     }
   };
+
+  // Explicitly mark active task Completed
+  const handleCompleteActiveTask = async () => {
+    if (!activeTask) return;
+    setLoadingAction(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    try {
+      await api.post('/tasks/end/', { 
+        task_log_id: activeTask.task_log_id,
+        is_completed: true 
+      });
+      setSuccessMsg(`Task "${activeTask.task_name}" marked as Completed!`);
+      setTimeout(() => setSuccessMsg(''), 4000);
+      await fetchStatus();
+      await fetchDailyTasks();
+      await fetchProjectSuggestions();
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.error || 'Failed to complete task.');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  // Resume an unfinished task
+  const handleResumeTask = async (task: any) => {
+    setLoadingAction(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      await api.post('/tasks/start/', {
+        project_name: task.project_name,
+        task_name: task.task_name || task.title,
+        description: task.description || '',
+        project_task_id: task.project_task_id || task.task_id
+      });
+      setSuccessMsg(`Resumed work on "${task.task_name || task.title}".`);
+      setTimeout(() => setSuccessMsg(''), 4000);
+      await fetchStatus();
+      await fetchDailyTasks();
+      await fetchProjectSuggestions();
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.error || 'Failed to resume task.');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  // Explicitly complete a task from the list
+  const handleCompleteTaskFromList = async (task: any) => {
+    const pTaskId = task.project_task_id || task.task_id;
+    setLoadingAction(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      if (pTaskId) {
+        await api.post(`/project-tasks/${pTaskId}/complete/`);
+      } else {
+        await api.post('/tasks/end/', { task_log_id: task.task_log_id, is_completed: true });
+      }
+      setSuccessMsg(`Task "${task.task_name || task.title}" marked Completed.`);
+      setTimeout(() => setSuccessMsg(''), 4000);
+      await fetchStatus();
+      await fetchDailyTasks();
+      await fetchProjectSuggestions();
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.error || 'Failed to complete task.');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  // Reopen completed task (requires mandatory reason)
+  const handleReopenTaskSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reopenReason.trim() || !reopenTargetTaskId) {
+      setErrorMsg('A mandatory reason is required to reopen this task.');
+      return;
+    }
+    setLoadingAction(true);
+    setErrorMsg('');
+    try {
+      await api.post(`/project-tasks/${reopenTargetTaskId}/reopen/`, {
+        reason: reopenReason.trim()
+      });
+      setSuccessMsg('Task reopened successfully. Status returned to In Progress.');
+      setShowReopenModal(false);
+      setReopenReason('');
+      setReopenTargetTaskId('');
+      setTimeout(() => setSuccessMsg(''), 4000);
+      await fetchStatus();
+      await fetchDailyTasks();
+      await fetchProjectSuggestions();
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.error || 'Failed to reopen task.');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+  // Add progress note
+  const handleAddNoteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!noteContent.trim() || !noteTargetTaskId) {
+      setErrorMsg('Progress note content is required.');
+      return;
+    }
+    setLoadingAction(true);
+    setErrorMsg('');
+    try {
+      await api.post(`/project-tasks/${noteTargetTaskId}/note/`, {
+        content: noteContent.trim()
+      });
+      setSuccessMsg('Progress note added successfully.');
+      setShowNoteModal(false);
+      setNoteContent('');
+      setNoteTargetTaskId('');
+      setTimeout(() => setSuccessMsg(''), 4000);
+      await fetchDailyTasks();
+    } catch (err: any) {
+      setErrorMsg(err.response?.data?.error || 'Failed to add progress note.');
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
+
 
   // End active task and start next task in one step
   const handleEndAndStartNext = async (e: React.FormEvent) => {
@@ -943,12 +1125,36 @@ export default function Tracker() {
                   </button>
 
                   <button
-                    onClick={handleEndActiveTask}
+                    onClick={handleStopActiveTask}
                     disabled={loadingAction}
-                    className="clay-btn clay-btn-danger py-2.5 px-4 text-xs sm:text-sm rounded-xl"
+                    className="clay-btn clay-btn-secondary py-2.5 px-4 text-xs sm:text-sm rounded-xl"
+                    title="Stop task timer (Leaves task In Progress)"
                   >
-                    <Check size={14} />
+                    <Pause size={14} />
                     <span>Stop Task</span>
+                  </button>
+
+                  <button
+                    onClick={handleCompleteActiveTask}
+                    disabled={loadingAction}
+                    className="clay-btn clay-btn-success py-2.5 px-4 text-xs sm:text-sm rounded-xl font-bold"
+                    title="Explicitly complete task and close work session"
+                  >
+                    <CheckCircle2 size={14} />
+                    <span>Mark Completed</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setNoteTargetTaskId(activeTask.project_task_id || activeTask.task_id);
+                      setNoteContent('');
+                      setShowNoteModal(true);
+                    }}
+                    className="clay-btn clay-btn-secondary py-2.5 px-3 text-xs sm:text-sm rounded-xl"
+                    title="Add progress note"
+                  >
+                    <MessageSquare size={13} />
+                    <span>Note</span>
                   </button>
                 </>
               ) : (
@@ -972,12 +1178,36 @@ export default function Tracker() {
                   </button>
 
                   <button
-                    onClick={handleEndActiveTask}
+                    onClick={handleStopActiveTask}
                     disabled={loadingAction}
-                    className="clay-btn clay-btn-secondary py-2.5 px-4 text-xs sm:text-sm rounded-xl !text-emerald-700"
+                    className="clay-btn clay-btn-secondary py-2.5 px-4 text-xs sm:text-sm rounded-xl"
+                    title="Stop task timer (Leaves task In Progress)"
                   >
-                    <Check size={15} className="text-emerald-600" />
+                    <Pause size={14} />
                     <span>Stop Task</span>
+                  </button>
+
+                  <button
+                    onClick={handleCompleteActiveTask}
+                    disabled={loadingAction}
+                    className="clay-btn clay-btn-success py-2.5 px-4 text-xs sm:text-sm rounded-xl font-bold"
+                    title="Explicitly complete task and close work session"
+                  >
+                    <CheckCircle2 size={14} />
+                    <span>Mark Completed</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setNoteTargetTaskId(activeTask.project_task_id || activeTask.task_id);
+                      setNoteContent('');
+                      setShowNoteModal(true);
+                    }}
+                    className="clay-btn clay-btn-secondary py-2.5 px-3 text-xs sm:text-sm rounded-xl"
+                    title="Add progress note"
+                  >
+                    <MessageSquare size={13} />
+                    <span>Note</span>
                   </button>
                 </>
               )}
@@ -1044,7 +1274,19 @@ export default function Tracker() {
         <div className="space-y-4">
           {/* Segmented View Mode Switcher */}
           <div className="clay-card-flat p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="inline-flex rounded-xl bg-slate-200/50 p-1">
+            <div className="inline-flex rounded-xl bg-slate-200/50 p-1 flex-wrap gap-1">
+              <button
+                type="button"
+                onClick={() => setWorkViewMode('projects')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
+                  workViewMode === 'projects'
+                    ? 'bg-white text-indigo-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Briefcase size={15} />
+                <span>My Projects & Tasks</span>
+              </button>
               <button
                 type="button"
                 onClick={() => setWorkViewMode('tasks')}
@@ -1077,13 +1319,13 @@ export default function Tracker() {
                 type="date"
                 value={selectedTaskDate}
                 onChange={(e) => setSelectedTaskDate(e.target.value)}
-                className="clay-input px-3 py-1.5 text-xs font-mono font-medium"
+                className="clay-input text-sm font-mono font-medium min-h-[44px]"
               />
               {selectedTaskDate !== getTodayIsoDate() && (
                 <button
                   type="button"
                   onClick={() => setSelectedTaskDate(getTodayIsoDate())}
-                  className="clay-btn clay-btn-secondary px-2.5 py-1 text-xs font-bold rounded-lg"
+                  className="clay-btn clay-btn-secondary px-3 min-h-[44px] text-xs font-bold rounded-xl"
                   title="Switch to Today"
                 >
                   Today
@@ -1092,8 +1334,12 @@ export default function Tracker() {
             </div>
           </div>
 
-          {/* View Mode A: Real-Time Analysis Dashboard */}
-          {workViewMode === 'analytics' ? (
+          {/* View Mode A: My Projects & Tasks */}
+          {workViewMode === 'projects' ? (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <EmployeeProjectTasks onTimerSync={fetchStatus} />
+            </div>
+          ) : workViewMode === 'analytics' ? (
             <div className="clay-card p-5 sm:p-7 space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/60">
                 <div>
@@ -1102,7 +1348,7 @@ export default function Tracker() {
                     <span>Personal Real-Time Task Analytics</span>
                   </h3>
                   <p className="text-xs text-slate-500 font-medium">
-                    Live charts and performance breakdown for your tracked workday ({selectedTaskDate})
+                    Live charts and performance breakdown for your tracked workday ({formatDisplayDate(selectedTaskDate)})
                   </p>
                 </div>
                 {projectBreakdown.length > 0 && (
@@ -1111,7 +1357,7 @@ export default function Tracker() {
                     <select
                       value={taskFilterProject}
                       onChange={(e) => setTaskFilterProject(e.target.value)}
-                      className="clay-input px-3 py-1.5 text-xs font-medium"
+                      className="clay-input text-sm font-medium min-h-[44px] min-w-[160px]"
                     >
                       <option value="">All Projects</option>
                       {projectBreakdown.map((p) => (
@@ -1154,7 +1400,7 @@ export default function Tracker() {
                     <select
                       value={taskFilterProject}
                       onChange={(e) => setTaskFilterProject(e.target.value)}
-                      className="clay-input px-3 py-1.5 text-xs font-medium"
+                      className="clay-input text-sm font-medium min-h-[44px] min-w-[160px]"
                     >
                       <option value="">All Projects</option>
                       {projectBreakdown.map((p) => (
@@ -1194,7 +1440,7 @@ export default function Tracker() {
                 <div className="text-center py-8 text-slate-500 text-xs sm:text-sm font-medium">Loading task entries...</div>
               ) : dailyTasks.length === 0 ? (
                 <div className="text-center py-10 clay-inset-well rounded-2xl border-dashed text-slate-500 text-xs sm:text-sm font-medium">
-                  No tasks recorded for {selectedTaskDate}.
+                  No tasks recorded for {formatDisplayDate(selectedTaskDate)}.
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100">
@@ -1224,13 +1470,70 @@ export default function Tracker() {
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between sm:justify-end gap-4 pl-9 sm:pl-0 shrink-0">
-                        <div className="text-right">
+                      <div className="flex items-center justify-between sm:justify-end gap-2 pl-9 sm:pl-0 shrink-0 flex-wrap">
+                        <div className="text-right mr-2">
                           <p className="font-mono text-xs font-bold text-slate-900">{t.duration_formatted}</p>
                           <p className="text-[11px] text-slate-500 font-medium">
                             {t.start_time_formatted} — {t.end_time_formatted}
                           </p>
                         </div>
+
+                        {/* Resume button if unfinished and not active */}
+                        {t.status !== 'COMPLETED' && (!activeTask || activeTask.task_log_id !== t.task_log_id) && (
+                          <button
+                            onClick={() => handleResumeTask(t)}
+                            disabled={loadingAction}
+                            className="px-2.5 py-1 text-xs font-bold rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 flex items-center gap-1 transition"
+                            title="Resume this task"
+                          >
+                            <Play size={11} />
+                            <span>Resume</span>
+                          </button>
+                        )}
+
+                        {/* Mark completed if unfinished */}
+                        {t.status !== 'COMPLETED' && (
+                          <button
+                            onClick={() => handleCompleteTaskFromList(t)}
+                            disabled={loadingAction}
+                            className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 flex items-center gap-1 transition"
+                            title="Mark as Completed"
+                          >
+                            <Check size={11} />
+                            <span>Complete</span>
+                          </button>
+                        )}
+
+                        {/* Reopen task if completed */}
+                        {t.status === 'COMPLETED' && (
+                          <button
+                            onClick={() => {
+                              setReopenTargetTaskId(t.project_task_id || t.task_id);
+                              setReopenReason('');
+                              setShowReopenModal(true);
+                            }}
+                            disabled={loadingAction}
+                            className="px-2.5 py-1 text-xs font-bold rounded-lg bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 flex items-center gap-1 transition"
+                            title="Reopen task (requires reason)"
+                          >
+                            <RotateCcw size={11} />
+                            <span>Reopen</span>
+                          </button>
+                        )}
+
+                        {/* Add Progress Note */}
+                        <button
+                          onClick={() => {
+                            setNoteTargetTaskId(t.project_task_id || t.task_id);
+                            setNoteContent('');
+                            setShowNoteModal(true);
+                          }}
+                          className="px-2 py-1 text-xs font-medium rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 flex items-center gap-1 transition"
+                          title="Add Progress Note"
+                        >
+                          <MessageSquare size={11} />
+                          <span>Note</span>
+                        </button>
 
                         <button
                           onClick={() => openEditModal(t)}
@@ -1267,11 +1570,57 @@ export default function Tracker() {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Project Alpha"
+                  list="start-project-suggestions"
+                  placeholder="Select existing project or enter new name..."
                   value={taskForm.project_name}
                   onChange={(e) => setTaskForm({ ...taskForm, project_name: e.target.value })}
                   className="clay-input w-full px-3.5 py-2.5 text-sm placeholder-slate-400 font-medium"
                 />
+                <datalist id="start-project-suggestions">
+                  {existingProjects.map((p) => (
+                    <option key={p.project_id} value={p.name} />
+                  ))}
+                </datalist>
+
+                {taskForm.project_name.trim() && (() => {
+                  const matching = unfinishedTasks.filter(
+                    (ut) => ut.project_name.toLowerCase() === taskForm.project_name.trim().toLowerCase()
+                  );
+                  if (matching.length === 0) return null;
+                  return (
+                    <div className="p-3 rounded-xl bg-indigo-50/90 border border-indigo-100 text-xs space-y-2 mt-2">
+                      <span className="font-bold text-indigo-900 block">
+                        Unfinished task(s) in "{taskForm.project_name.trim()}":
+                      </span>
+                      <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                        {matching.map((ut) => (
+                          <div
+                            key={ut.task_id}
+                            className="flex items-center justify-between bg-white p-2 rounded-lg border border-indigo-100/80 gap-2 shadow-2xs"
+                          >
+                            <div className="min-w-0">
+                              <p className="font-semibold text-slate-800 truncate">{ut.title}</p>
+                              <p className="text-[10px] text-slate-400 font-mono">{ut.task_id}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleResumeTask(ut);
+                                setShowStartWorkdayPrompt(false);
+                              }}
+                              className="px-2.5 py-1 rounded bg-indigo-600 text-white font-bold text-xs hover:bg-indigo-700 shrink-0 shadow-2xs transition"
+                            >
+                              Resume Task
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-[10px] text-slate-500 italic">
+                        Click Resume above to continue without duplicate tasks, or enter a new task name below.
+                      </p>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div>
@@ -1341,11 +1690,57 @@ export default function Tracker() {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Website Redesign"
+                  list="new-project-suggestions"
+                  placeholder="Select existing project or enter new name..."
                   value={taskForm.project_name}
                   onChange={(e) => setTaskForm({ ...taskForm, project_name: e.target.value })}
                   className="clay-input w-full px-3.5 py-2.5 text-sm placeholder-slate-400 font-medium"
                 />
+                <datalist id="new-project-suggestions">
+                  {existingProjects.map((p) => (
+                    <option key={p.project_id} value={p.name} />
+                  ))}
+                </datalist>
+
+                {taskForm.project_name.trim() && (() => {
+                  const matching = unfinishedTasks.filter(
+                    (ut) => ut.project_name.toLowerCase() === taskForm.project_name.trim().toLowerCase()
+                  );
+                  if (matching.length === 0) return null;
+                  return (
+                    <div className="p-3 rounded-xl bg-indigo-50/90 border border-indigo-100 text-xs space-y-2 mt-2">
+                      <span className="font-bold text-indigo-900 block">
+                        Unfinished task(s) in "{taskForm.project_name.trim()}":
+                      </span>
+                      <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                        {matching.map((ut) => (
+                          <div
+                            key={ut.task_id}
+                            className="flex items-center justify-between bg-white p-2 rounded-lg border border-indigo-100/80 gap-2 shadow-2xs"
+                          >
+                            <div className="min-w-0">
+                              <p className="font-semibold text-slate-800 truncate">{ut.title}</p>
+                              <p className="text-[10px] text-slate-400 font-mono">{ut.task_id}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleResumeTask(ut);
+                                setShowNewTaskModal(false);
+                              }}
+                              className="px-2.5 py-1 rounded bg-indigo-600 text-white font-bold text-xs hover:bg-indigo-700 shrink-0 shadow-2xs transition"
+                            >
+                              Resume Task
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-[10px] text-slate-500 italic">
+                        Click Resume above to continue without duplicate tasks, or enter a new task name below.
+                      </p>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div>
@@ -1589,6 +1984,119 @@ export default function Tracker() {
                 {loadingAction ? 'Ending...' : 'Yes, End Workday'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL 6: REOPEN TASK (REASON REQUIRED) */}
+      {/* ======================================================== */}
+      {showReopenModal && (
+        <div className="clay-modal-overlay">
+          <div className="clay-modal-dialog p-6 sm:p-7 max-w-md w-full">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                <RotateCcw size={16} className="text-amber-600" />
+                <span>Reopen Completed Task</span>
+              </h3>
+              <button onClick={() => setShowReopenModal(false)} className="p-1 text-slate-400 hover:text-slate-700">
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleReopenTaskSubmit} className="space-y-4 pt-3">
+              <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                Reopening this task will reset its status to <strong>In Progress</strong> and allow you to log further time.
+                A mandatory reason is required to maintain audit history.
+              </p>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                  Reason for Reopening <span className="text-rose-500 font-bold">* Required</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  placeholder="e.g. Additional client feedback received; bug fixes required..."
+                  value={reopenReason}
+                  onChange={(e) => setReopenReason(e.target.value)}
+                  className="clay-input w-full p-3 text-sm font-medium"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowReopenModal(false)}
+                  className="clay-btn clay-btn-secondary px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loadingAction}
+                  className="clay-btn bg-amber-600 hover:bg-amber-700 text-white px-5 py-2 text-xs sm:text-sm font-bold rounded-xl shadow-xs"
+                >
+                  {loadingAction ? 'Reopening...' : 'Confirm Reopen'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL 7: ADD PROGRESS NOTE */}
+      {/* ======================================================== */}
+      {showNoteModal && (
+        <div className="clay-modal-overlay">
+          <div className="clay-modal-dialog p-6 sm:p-7 max-w-md w-full">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                <MessageSquare size={16} className="text-indigo-600" />
+                <span>Add Task Progress Note</span>
+              </h3>
+              <button onClick={() => setShowNoteModal(false)} className="p-1 text-slate-400 hover:text-slate-700">
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddNoteSubmit} className="space-y-4 pt-3">
+              <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                Record a progress note explaining work done, obstacles, or remaining steps on this task.
+              </p>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
+                  Progress Note <span className="text-rose-500 font-bold">* Required</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  placeholder="e.g. Completed unit tests and API integration; pending UI review..."
+                  value={noteContent}
+                  onChange={(e) => setNoteContent(e.target.value)}
+                  className="clay-input w-full p-3 text-sm font-medium"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNoteModal(false)}
+                  className="clay-btn clay-btn-secondary px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loadingAction}
+                  className="clay-btn clay-btn-primary px-5 py-2 text-xs sm:text-sm font-semibold rounded-xl"
+                >
+                  {loadingAction ? 'Saving...' : 'Save Note'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -8,7 +8,10 @@ from django.urls import reverse
 from django.core.management import call_command
 from rest_framework.test import APIClient
 from rest_framework.authtoken.models import Token
-from .models import User, Invitation, Notification, TimeEvent, TaskLog, TimesheetEntry, AuditLog, SystemSettings
+from .models import (
+    User, Invitation, Notification, TimeEvent, TaskLog, TimesheetEntry, AuditLog, SystemSettings,
+    Project, ProjectTask, WorkSession, TaskProgressNote, ProjectAuditHistory
+)
 from .storage_adapter import storage
 
 IST_TZ = zoneinfo.ZoneInfo("Asia/Kolkata")
@@ -1413,6 +1416,1206 @@ class AnalyticsDashboardTests(TestCase):
         self.assertEqual(res_filtered_proj.status_code, 200)
         self.assertEqual(res_filtered_proj.data['summary']['total_tasks'], 1)
         self.assertEqual(res_filtered_proj.data['by_project'][0]['project_name'], 'Project Alpha')
+
+
+class HourlyTaskReportTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_superuser(
+            username='hourly_admin@knowletive.com',
+            email='hourly_admin@knowletive.com',
+            password='password123',
+            first_name='Admin',
+            last_name='Leader',
+            role='ADMIN'
+        )
+        self.admin_token, _ = Token.objects.get_or_create(user=self.admin)
+
+        self.emp1 = User.objects.create_user(
+            username='alice@knowletive.com',
+            email='alice@knowletive.com',
+            password='password123',
+            first_name='Alice',
+            last_name='Wonderland',
+            role='EMPLOYEE',
+            department='Engineering',
+            employee_id='EMP101'
+        )
+        self.emp1_token, _ = Token.objects.get_or_create(user=self.emp1)
+
+        self.emp2 = User.objects.create_user(
+            username='bob@knowletive.com',
+            email='bob@knowletive.com',
+            password='password123',
+            first_name='Bob',
+            last_name='Builder',
+            role='EMPLOYEE',
+            department='Marketing',
+            employee_id='EMP102'
+        )
+        self.emp2_token, _ = Token.objects.get_or_create(user=self.emp2)
+
+        SystemSettings.objects.all().delete()
+        SystemSettings.objects.create(
+            company_name='Knowletive',
+            workspace_name='Knowletive',
+            work_start_time='10:00',
+            work_end_time='19:00',
+            timezone='Asia/Kolkata'
+        )
+
+    def test_permission_enforcement(self):
+        """Employees should be blocked (403), while Admins can access."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.emp1_token.key}')
+        res = self.client.get('/api/admin/tasks/hourly-report/')
+        self.assertEqual(res.status_code, 403)
+        self.assertIn('Admin permissions required', res.data.get('error', ''))
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
+        res_admin = self.client.get('/api/admin/tasks/hourly-report/')
+        self.assertEqual(res_admin.status_code, 200)
+        self.assertIn('slots', res_admin.data)
+        self.assertEqual(len(res_admin.data['slots']), 11)
+
+    def test_cross_hour_splitting_and_completion_example(self):
+        """
+        Tests the exact prompt specification:
+        Task A from 10:30 AM to 12:15 PM IST without breaks, completed at 12:15 PM IST.
+        - 10-11 AM: 30 minutes (1800s); 0 completed.
+        - 11 AM-12 PM: 60 minutes (3600s); 0 completed.
+        - 12-1 PM: 15 minutes (900s); 1 completed.
+        """
+        # IST is UTC+05:30
+        # 10:30 AM IST = 05:00:00 UTC
+        # 12:15 PM IST = 06:45:00 UTC
+        start_utc = "2026-11-03T05:00:00Z"
+        end_utc = "2026-11-03T06:45:00Z"
+        duration_sec = 6300  # 1h 45m = 1800 + 3600 + 900
+
+        TaskLog.objects.create(
+            task_id="task-a-123",
+            user_id=self.emp1.id,
+            employee_id="EMP101",
+            employee_name="Alice Wonderland",
+            date="2026-11-03",
+            project_name="Client Portal",
+            task_name="Task A",
+            description="Frontend development",
+            status="COMPLETED",
+            start_time=start_utc,
+            end_time=end_utc,
+            duration_seconds=duration_sec,
+            work_segments=[{
+                "start_time": start_utc,
+                "end_time": end_utc,
+                "duration_seconds": duration_sec
+            }],
+            created_at=start_utc,
+            updated_at=end_utc
+        )
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
+        res = self.client.get('/api/admin/tasks/hourly-report/?date=2026-11-03')
+        self.assertEqual(res.status_code, 200)
+
+        slots = {s['slot_index']: s for s in res.data['slots']}
+
+        # Slot 10: 10:00 AM - 11:00 AM
+        slot_10 = slots[10]
+        self.assertEqual(slot_10['slot_label'], '10:00 AM–11:00 AM')
+        self.assertEqual(slot_10['total_seconds'], 1800)  # 30 mins
+        self.assertEqual(slot_10['tasks_worked_count'], 1)
+        self.assertEqual(slot_10['tasks_completed_count'], 0)
+
+        # Slot 11: 11:00 AM - 12:00 PM
+        slot_11 = slots[11]
+        self.assertEqual(slot_11['slot_label'], '11:00 AM–12:00 PM')
+        self.assertEqual(slot_11['total_seconds'], 3600)  # 60 mins
+        self.assertEqual(slot_11['tasks_worked_count'], 1)
+        self.assertEqual(slot_11['tasks_completed_count'], 0)
+
+        # Slot 12: 12:00 PM - 1:00 PM
+        slot_12 = slots[12]
+        self.assertEqual(slot_12['slot_label'], '12:00 PM–1:00 PM')
+        self.assertEqual(slot_12['total_seconds'], 900)  # 15 mins
+        self.assertEqual(slot_12['tasks_worked_count'], 1)
+        self.assertEqual(slot_12['tasks_completed_count'], 1)
+
+        # Empty slots should report no activity
+        slot_9 = slots[9]
+        self.assertFalse(slot_9['has_activity'])
+        self.assertEqual(slot_9['total_seconds'], 0)
+        self.assertEqual(slot_9['tasks_worked_count'], 0)
+        self.assertEqual(slot_9['tasks_completed_count'], 0)
+
+    def test_break_exclusion_and_multiple_tasks(self):
+        """
+        Verify that pauses/breaks are excluded and multiple tasks in one slot increment distinct task counts.
+        """
+        # Task 1: 10:00 AM - 10:20 AM IST (1200s), Pause 10:20 - 10:40 AM (break), Resume 10:40 - 11:00 AM (1200s)
+        # Total worked in 10-11 AM: 2400s (40 min). 20 min break excluded!
+        t1_start = "2026-11-03T04:30:00Z"  # 10:00 AM IST
+        t1_seg1_end = "2026-11-03T04:50:00Z"  # 10:20 AM IST
+        t1_seg2_start = "2026-11-03T05:10:00Z"  # 10:40 AM IST
+        t1_end = "2026-11-03T05:30:00Z"  # 11:00 AM IST
+
+        TaskLog.objects.create(
+            task_id="task-break-1",
+            user_id=self.emp1.id,
+            employee_id="EMP101",
+            employee_name="Alice Wonderland",
+            date="2026-11-03",
+            project_name="Project X",
+            task_name="Task 1 with break",
+            status="COMPLETED",
+            start_time=t1_start,
+            end_time=t1_end,
+            duration_seconds=2400,
+            work_segments=[
+                {"start_time": t1_start, "end_time": t1_seg1_end, "duration_seconds": 1200},
+                {"start_time": t1_seg2_start, "end_time": t1_end, "duration_seconds": 1200}
+            ]
+        )
+
+        # Task 2 by Emp 2: Worked in the same slot from 10:15 AM to 10:45 AM (1800s, 30 min)
+        t2_start = "2026-11-03T04:45:00Z"  # 10:15 AM IST
+        t2_end = "2026-11-03T05:15:00Z"  # 10:45 AM IST
+
+        TaskLog.objects.create(
+            task_id="task-emp2-2",
+            user_id=self.emp2.id,
+            employee_id="EMP102",
+            employee_name="Bob Builder",
+            date="2026-11-03",
+            project_name="Marketing Launch",
+            task_name="Campaign Banner",
+            status="COMPLETED",
+            start_time=t2_start,
+            end_time=t2_end,
+            duration_seconds=1800,
+            work_segments=[
+                {"start_time": t2_start, "end_time": t2_end, "duration_seconds": 1800}
+            ]
+        )
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
+        res = self.client.get('/api/admin/tasks/hourly-report/?date=2026-11-03')
+        self.assertEqual(res.status_code, 200)
+
+        slot_10 = [s for s in res.data['slots'] if s['slot_index'] == 10][0]
+        # Total worked seconds: 2400 (Alice) + 1800 (Bob) = 4200 seconds (70 minutes total employee labor)
+        self.assertEqual(slot_10['total_seconds'], 4200)
+        # Distinct tasks worked on: 2
+        self.assertEqual(slot_10['tasks_worked_count'], 2)
+        # Active employees: 2
+        self.assertEqual(slot_10['employees_count'], 2)
+        self.assertEqual(len(slot_10['by_employee']), 2)
+
+    def test_exact_hour_boundary_start_inclusive_end_exclusive(self):
+        """
+        Verify rule: "Treat intervals as start-inclusive and end-exclusive:
+        a completion at exactly 11:00 AM belongs to 11:00 AM–12:00 PM."
+        """
+        # Completed at exactly 11:00:00 AM IST (05:30:00 UTC)
+        exact_11_utc = "2026-11-03T05:30:00Z"
+        start_utc = "2026-11-03T05:00:00Z"
+
+        TaskLog.objects.create(
+            task_id="boundary-task",
+            user_id=self.emp1.id,
+            employee_id="EMP101",
+            employee_name="Alice Wonderland",
+            date="2026-11-03",
+            project_name="Boundary Check",
+            task_name="Exact 11 AM Finish",
+            status="COMPLETED",
+            start_time=start_utc,
+            end_time=exact_11_utc,
+            duration_seconds=1800,
+            work_segments=[{"start_time": start_utc, "end_time": exact_11_utc, "duration_seconds": 1800}]
+        )
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
+        res = self.client.get('/api/admin/tasks/hourly-report/?date=2026-11-03')
+        slots = {s['slot_index']: s for s in res.data['slots']}
+
+        # Slot 10 (10:00 AM–11:00 AM): Completion at exactly 11:00:00 AM does NOT count in slot 10
+        self.assertEqual(slots[10]['tasks_completed_count'], 0)
+        # Slot 11 (11:00 AM–12:00 PM): Completion at exactly 11:00:00 AM belongs here!
+        self.assertEqual(slots[11]['tasks_completed_count'], 1)
+
+    def test_filtering_and_export(self):
+        """Verify employee, project, and slot filters as well as export endpoints."""
+        TaskLog.objects.create(
+            task_id="task-f1",
+            user_id=self.emp1.id,
+            employee_id="EMP101",
+            date="2026-11-03",
+            project_name="Web Redesign",
+            task_name="Design Mockups",
+            status="COMPLETED",
+            start_time="2026-11-03T05:00:00Z",
+            end_time="2026-11-03T05:30:00Z",
+            duration_seconds=1800,
+            work_segments=[{"start_time": "2026-11-03T05:00:00Z", "end_time": "2026-11-03T05:30:00Z", "duration_seconds": 1800}]
+        )
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
+
+        # 1. Slot filter
+        res_slot = self.client.get('/api/admin/tasks/hourly-report/?date=2026-11-03&slot=10')
+        self.assertEqual(res_slot.status_code, 200)
+        self.assertEqual(len(res_slot.data['slots']), 1)
+        self.assertEqual(res_slot.data['slots'][0]['slot_index'], 10)
+
+        # 2. Project filter
+        res_proj = self.client.get('/api/admin/tasks/hourly-report/?date=2026-11-03&project=Web')
+        self.assertEqual(res_proj.status_code, 200)
+        self.assertEqual(res_proj.data['summary']['total_tasks_worked'], 1)
+
+        # 3. CSV Export
+        res_csv = self.client.get('/api/admin/tasks/hourly-report/export/?date=2026-11-03&format=csv')
+        self.assertEqual(res_csv.status_code, 200)
+        self.assertIn('text/csv', res_csv['Content-Type'])
+        self.assertIn('KNOWLETIVE HOURLY EMPLOYEE TASK REPORT', res_csv.content.decode('utf-8'))
+
+        # 4. Excel Export
+        res_xlsx = self.client.get('/api/admin/tasks/hourly-report/export/?date=2026-11-03&format=xlsx')
+        self.assertEqual(res_xlsx.status_code, 200)
+        self.assertIn('application/vnd.openxmlformats', res_xlsx['Content-Type'])
+
+    def test_window_boundary_task_and_eleven_slots(self):
+        """
+        Verify that 11 slots (9 AM to 8 PM) are returned, and tasks overlapping the
+        edges (e.g. 8:30 AM to 9:30 AM and 7:30 PM to 8:30 PM) are properly split
+        and allocated into the visible slots.
+        """
+        # Task 1: 8:30 AM - 9:30 AM IST (Nov 3)
+        # 8:30 AM IST = 03:00:00 UTC
+        # 9:30 AM IST = 04:00:00 UTC
+        t1_start = "2026-11-03T03:00:00Z"
+        t1_end = "2026-11-03T04:00:00Z"
+        dur1 = 3600
+
+        TaskLog.objects.create(
+            task_id="morning-task-1",
+            user_id=self.emp1.id,
+            employee_id="EMP101",
+            employee_name="Alice Wonderland",
+            date="2026-11-03",
+            project_name="Morning Kickoff",
+            task_name="Standup & Setup",
+            status="COMPLETED",
+            start_time=t1_start,
+            end_time=t1_end,
+            duration_seconds=dur1,
+            work_segments=[{"start_time": t1_start, "end_time": t1_end, "duration_seconds": dur1}]
+        )
+
+        # Task 2: 7:30 PM - 8:30 PM IST (Nov 3)
+        # 7:30 PM IST = 14:00:00 UTC
+        # 8:30 PM IST = 15:00:00 UTC
+        t2_start = "2026-11-03T14:00:00Z"
+        t2_end = "2026-11-03T15:00:00Z"
+        dur2 = 3600
+
+        TaskLog.objects.create(
+            task_id="evening-task-2",
+            user_id=self.emp2.id,
+            employee_id="EMP102",
+            employee_name="Bob Builder",
+            date="2026-11-03",
+            project_name="Evening Wrapup",
+            task_name="Deployment",
+            status="COMPLETED",
+            start_time=t2_start,
+            end_time=t2_end,
+            duration_seconds=dur2,
+            work_segments=[{"start_time": t2_start, "end_time": t2_end, "duration_seconds": dur2}]
+        )
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
+        res = self.client.get('/api/admin/tasks/hourly-report/?date=2026-11-03')
+        self.assertEqual(res.status_code, 200)
+        
+        # Exactly 11 slots (hours 9 to 19 inclusive)
+        self.assertEqual(len(res.data['slots']), 11)
+        slots = {s['slot_index']: s for s in res.data['slots']}
+
+        # First slot (9:00 AM–10:00 AM)
+        slot_9 = slots[9]
+        self.assertEqual(slot_9['slot_label'], '9:00 AM–10:00 AM')
+        self.assertEqual(slot_9['total_seconds'], 1800)  # 9:00 - 9:30 AM = 30 mins
+        self.assertEqual(slot_9['tasks_worked_count'], 1)
+        self.assertEqual(slot_9['tasks_completed_count'], 1)
+
+        # Last slot (7:00 PM–8:00 PM)
+        slot_19 = slots[19]
+        self.assertEqual(slot_19['slot_label'], '7:00 PM–8:00 PM')
+        self.assertEqual(slot_19['total_seconds'], 1800)  # 7:30 - 8:00 PM = 30 mins
+        self.assertEqual(slot_19['tasks_worked_count'], 1)
+        self.assertEqual(slot_19['tasks_completed_count'], 0)  # Completed at 8:30 PM (outside 9 AM-8 PM)
+
+
+class ProjectTaskProgressTests(TestCase):
+    """
+    Comprehensive test suite for connected Project & Task Progress feature:
+    - Relationship: Project -> Assigned Tasks -> Work Sessions
+    - Stable IDs
+    - Multi-session task tracking without duplicating tasks
+    - Status lifecycle: Not Started, In Progress, Ready for Closure, Completed
+    - Pause, stop, break, clock-out preserving In Progress status (no accidental completion)
+    - Explicit completion closing active session and timestamping atomically
+    - Prevention of additional time logging on completed tasks
+    - Admin-only project closure, reopen with mandatory reason, reopen task with reason
+    - Adding task to closed project rejected until reopened
+    - Role and assignment permissions enforcement
+    - Progress notes and audit history
+    - Hourly report integration with explicit completion timestamps
+    """
+    def setUp(self):
+        self.client = APIClient()
+
+        # Admin User
+        self.admin = User.objects.create_superuser(
+            username='admin_proj@knowletive.com',
+            email='admin_proj@knowletive.com',
+            password='adminpassword',
+            first_name='Chief',
+            last_name='Admin',
+            role='ADMIN'
+        )
+        self.admin_token, _ = Token.objects.get_or_create(user=self.admin)
+
+        # Employee 1
+        self.emp1 = User.objects.create_user(
+            username='alice_proj@knowletive.com',
+            email='alice_proj@knowletive.com',
+            password='password123',
+            first_name='Alice',
+            last_name='Developer',
+            role='EMPLOYEE',
+            employee_id='ALICE001',
+            department='Engineering'
+        )
+        self.emp1_token, _ = Token.objects.get_or_create(user=self.emp1)
+
+        # Employee 2
+        self.emp2 = User.objects.create_user(
+            username='bob_proj@knowletive.com',
+            email='bob_proj@knowletive.com',
+            password='password123',
+            first_name='Bob',
+            last_name='Designer',
+            role='EMPLOYEE',
+            employee_id='BOB002',
+            department='Design'
+        )
+        self.emp2_token, _ = Token.objects.get_or_create(user=self.emp2)
+
+        SystemSettings.objects.create(
+            company_name='Knowletive',
+            work_start_time='10:00',
+            work_end_time='19:00',
+            timezone='Asia/Kolkata'
+        )
+
+    def test_full_project_and_task_progress_lifecycle(self):
+        # 1. Admin creates project
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
+        res_create_p = self.client.post('/api/projects/', {
+            'name': 'Cloud Portal Re-architecture',
+            'description': 'Migrate portal to microservices',
+            'deadline': '2026-12-31T18:00:00Z'
+        }, format='json')
+        self.assertEqual(res_create_p.status_code, 201)
+        p_data = res_create_p.data['project']
+        project_id = p_data['project_id']
+        self.assertTrue(project_id.startswith('PRJ-'))
+        # Initially no tasks: status NO_TASKS, percentage None, label 'No tasks recorded'
+        self.assertEqual(p_data['status'], 'NO_TASKS')
+        self.assertIsNone(p_data['completion_percentage'])
+        self.assertIn(p_data['completion_label'], ['No tasks recorded', 'No tasks assigned'])
+
+        # 2. Admin creates two tasks in this project
+        # Task 1 assigned to Alice
+        res_t1 = self.client.post(f'/api/projects/{project_id}/tasks/', {
+            'title': 'Design Auth Architecture',
+            'description': 'JWT + OAuth2 flow specification',
+            'assigned_to': self.emp1.id,
+            'deadline': '2026-11-15T18:00:00Z'
+        }, format='json')
+        self.assertEqual(res_t1.status_code, 201)
+        t1_id = res_t1.data['task']['task_id']
+        self.assertTrue(t1_id.startswith('TSK-'))
+        self.assertEqual(res_t1.data['task']['status'], 'NOT_STARTED')
+
+        # Task 2 assigned to Bob
+        res_t2 = self.client.post(f'/api/projects/{project_id}/tasks/', {
+            'title': 'Design UI Mockups',
+            'description': 'Figma prototypes for admin dashboard',
+            'assigned_to': self.emp2.id
+        }, format='json')
+        self.assertEqual(res_t2.status_code, 201)
+        t2_id = res_t2.data['task']['task_id']
+
+        # Project status should now be NOT_STARTED with 0% completion
+        res_p_check = self.client.get(f'/api/projects/{project_id}/')
+        self.assertEqual(res_p_check.status_code, 200)
+        p_summary = res_p_check.data['project']
+        self.assertEqual(p_summary['status'], 'NOT_STARTED')
+        self.assertEqual(p_summary['total_tasks'], 2)
+        self.assertEqual(p_summary['completed_tasks'], 0)
+        self.assertEqual(p_summary['completion_percentage'], 0.0)
+
+        # 3. Alice checks "My Projects & Tasks"
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.emp1_token.key}')
+        res_my_tasks = self.client.get('/api/tasks/my-tasks/')
+        self.assertEqual(res_my_tasks.status_code, 200)
+        # Alice should see Task 1, but NOT Task 2
+        alice_task_ids = [t['task_id'] for t in res_my_tasks.data['tasks']]
+        self.assertIn(t1_id, alice_task_ids)
+        self.assertNotIn(t2_id, alice_task_ids)
+
+        # 4. Alice starts work on Task 1
+        res_start = self.client.post(f'/api/project-tasks/{t1_id}/start/')
+        self.assertEqual(res_start.status_code, 200)
+        t1_updated = res_start.data['task']
+        self.assertEqual(t1_updated['status'], 'IN_PROGRESS')
+        self.assertIsNotNone(t1_updated['first_started_at'])
+        self.assertIsNotNone(t1_updated['active_session'])
+        self.assertEqual(t1_updated['active_session']['status'], 'IN_PROGRESS')
+
+        # Project should now be IN_PROGRESS and have first_started_at recorded
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
+        res_p_active = self.client.get(f'/api/projects/{project_id}/')
+        self.assertEqual(res_p_active.data['project']['status'], 'IN_PROGRESS')
+        self.assertIsNotNone(res_p_active.data['project']['first_started_at'])
+        self.assertIn('Started at', res_p_active.data['project']['started_at_display'])
+
+        # 5. Alice pauses work on Task 1 (e.g. taking a quick break)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.emp1_token.key}')
+        res_pause = self.client.post(f'/api/project-tasks/{t1_id}/pause/')
+        self.assertEqual(res_pause.status_code, 200)
+        # Crucial requirement: Task MUST remain IN_PROGRESS!
+        self.assertEqual(res_pause.data['task']['status'], 'IN_PROGRESS')
+        self.assertEqual(res_pause.data['task']['active_session']['status'], 'PAUSED')
+
+        # 6. Alice resumes and stops the timer session
+        res_resume = self.client.post(f'/api/project-tasks/{t1_id}/start/')
+        self.assertEqual(res_resume.status_code, 200)
+        self.assertEqual(res_resume.data['task']['active_session']['status'], 'IN_PROGRESS')
+
+        res_stop = self.client.post(f'/api/project-tasks/{t1_id}/stop/')
+        self.assertEqual(res_stop.status_code, 200)
+        # Crucial requirement: Stopping timer session must NOT mark task completed!
+        self.assertEqual(res_stop.data['task']['status'], 'IN_PROGRESS')
+
+        # 7. Alice adds a progress note
+        res_note = self.client.post(f'/api/project-tasks/{t1_id}/note/', {
+            'content': 'Completed JWT token signing logic and refresh mechanism. Pending review.'
+        }, format='json')
+        self.assertEqual(res_note.status_code, 200)
+        self.assertEqual(len(res_note.data['task']['progress_notes']), 1)
+        self.assertEqual(res_note.data['note']['author_name'], 'Alice Developer')
+
+        # 8. Multi-day / multiple work sessions support: Alice starts another work session
+        res_start2 = self.client.post(f'/api/project-tasks/{t1_id}/start/')
+        self.assertEqual(res_start2.status_code, 200)
+
+        # 9. Alice explicitly marks Task 1 Completed
+        res_comp1 = self.client.post(f'/api/project-tasks/{t1_id}/complete/')
+        self.assertEqual(res_comp1.status_code, 200)
+        t1_completed = res_comp1.data['task']
+        self.assertEqual(t1_completed['status'], 'COMPLETED')
+        self.assertIsNotNone(t1_completed['completed_at'])
+        self.assertEqual(t1_completed['completed_by'], 'Alice Developer')
+
+        # Duplicate completion should be prevented
+        res_comp_dup = self.client.post(f'/api/project-tasks/{t1_id}/complete/')
+        self.assertEqual(res_comp_dup.status_code, 400)
+        self.assertIn('already', res_comp_dup.data['error'])
+
+        # Additional time logging on completed task must be blocked
+        res_start_blocked = self.client.post(f'/api/project-tasks/{t1_id}/start/')
+        self.assertEqual(res_start_blocked.status_code, 400)
+        self.assertIn('Cannot log time on a completed task', res_start_blocked.data['error'])
+
+        # 10. Check Project completion percentage: 1 of 2 tasks completed = 50.0%
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
+        res_p_half = self.client.get(f'/api/projects/{project_id}/')
+        self.assertEqual(res_p_half.data['project']['completed_tasks'], 1)
+        self.assertEqual(res_p_half.data['project']['completion_percentage'], 50.0)
+        self.assertEqual(res_p_half.data['project']['status'], 'IN_PROGRESS')
+
+        # 11. Bob completes Task 2
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.emp2_token.key}')
+        self.client.post(f'/api/project-tasks/{t2_id}/start/')
+        res_comp2 = self.client.post(f'/api/project-tasks/{t2_id}/complete/')
+        self.assertEqual(res_comp2.status_code, 200)
+        self.assertEqual(res_comp2.data['task']['status'], 'COMPLETED')
+
+        # When all tasks completed: Project becomes ALL_RECORDED_COMPLETED (All Recorded Tasks Completed)
+        self.assertIn(res_comp2.data['project_status'], ['ALL_RECORDED_COMPLETED', 'READY_FOR_CLOSURE'])
+
+        # 12. Admin confirms closure (or monitoring view sees all completed)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
+        res_close = self.client.post(f'/api/projects/{project_id}/close/')
+        self.assertEqual(res_close.status_code, 200)
+        self.assertEqual(res_close.data['project']['status'], 'COMPLETED')
+        self.assertIsNotNone(res_close.data['project']['closed_at'])
+
+        # 13. Adding task to closed project must be rejected until reopened
+        res_add_closed = self.client.post(f'/api/projects/{project_id}/tasks/', {
+            'title': 'New Post-Launch Task',
+            'assigned_to': self.emp1.id
+        }, format='json')
+        self.assertEqual(res_add_closed.status_code, 400)
+        self.assertIn('reopening it first', res_add_closed.data['error'])
+
+        # 14. Admin reopens project with mandatory reason
+        # Without reason -> rejected
+        res_reopen_noreason = self.client.post(f'/api/projects/{project_id}/reopen/', {'reason': ''}, format='json')
+        self.assertEqual(res_reopen_noreason.status_code, 400)
+
+        # With reason -> successfully reopened
+        res_reopen_ok = self.client.post(f'/api/projects/{project_id}/reopen/', {
+            'reason': 'Phase 2 deliverables requested by client'
+        }, format='json')
+        self.assertEqual(res_reopen_ok.status_code, 200)
+        self.assertIn(res_reopen_ok.data['project']['status'], ['ALL_RECORDED_COMPLETED', 'READY_FOR_CLOSURE', 'IN_PROGRESS'])
+        self.assertEqual(res_reopen_ok.data['project']['reopen_reason'], 'Phase 2 deliverables requested by client')
+
+        # Now adding task succeeds, and since a new uncompleted task exists, project becomes IN_PROGRESS
+        res_add_after_reopen = self.client.post(f'/api/projects/{project_id}/tasks/', {
+            'title': 'Phase 2 Performance Benchmarks',
+            'assigned_to': self.emp1.id
+        }, format='json')
+        self.assertEqual(res_add_after_reopen.status_code, 201)
+
+        res_p_reopened = self.client.get(f'/api/projects/{project_id}/')
+        self.assertEqual(res_p_reopened.data['project']['status'], 'IN_PROGRESS')
+
+    def test_reopen_completed_task_requires_reason(self):
+        # Setup project & completed task
+        proj = Project.objects.create(name='Mobile App', status='IN_PROGRESS')
+        task = ProjectTask.objects.create(
+            project=proj,
+            title='Push Notifications',
+            assigned_to=self.emp1,
+            status='COMPLETED',
+            completed_at=datetime.now(timezone.utc)
+        )
+
+        # Other employee (Bob) cannot reopen Alice's task -> 403
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.emp2_token.key}')
+        res_bob_reopen = self.client.post(f'/api/project-tasks/{task.task_id}/reopen/', {'reason': 'Want to work more'})
+        self.assertEqual(res_bob_reopen.status_code, 403)
+
+        # Assigned employee (Alice) without reason -> 400
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.emp1_token.key}')
+        res_no_reason = self.client.post(f'/api/project-tasks/{task.task_id}/reopen/', {'reason': ''})
+        self.assertEqual(res_no_reason.status_code, 400)
+
+        # Assigned employee (Alice) with reason -> 200 and task status returns to IN_PROGRESS
+        res_reopen = self.client.post(f'/api/project-tasks/{task.task_id}/reopen/', {
+            'reason': 'APNS payload specification changed'
+        })
+        self.assertEqual(res_reopen.status_code, 200)
+        task.refresh_from_db()
+        self.assertEqual(task.status, 'IN_PROGRESS')
+        self.assertIsNone(task.completed_at)
+        self.assertEqual(task.reopen_reason, 'APNS payload specification changed')
+
+        # Alice can now log time on the reopened task again
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.emp1_token.key}')
+        res_start_again = self.client.post(f'/api/project-tasks/{task.task_id}/start/')
+        self.assertEqual(res_start_again.status_code, 200)
+
+    def test_permission_boundaries_for_employees(self):
+        # Alice cannot track time on Bob's task
+        proj = Project.objects.create(name='Data Science', status='IN_PROGRESS')
+        bob_task = ProjectTask.objects.create(
+            project=proj,
+            title='Data Cleaning Pipeline',
+            assigned_to=self.emp2,
+            status='NOT_STARTED'
+        )
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.emp1_token.key}')
+        res_alice_on_bob = self.client.post(f'/api/project-tasks/{bob_task.task_id}/start/')
+        self.assertEqual(res_alice_on_bob.status_code, 403)
+        self.assertIn('only track time on tasks assigned to you', res_alice_on_bob.data['error'])
+
+        # Alice cannot close project
+        res_close = self.client.post(f'/api/projects/{proj.project_id}/close/')
+        self.assertEqual(res_close.status_code, 403)
+
+        # Alice cannot create project
+        res_create_p = self.client.post('/api/projects/', {'name': 'Alice Project'})
+        self.assertEqual(res_create_p.status_code, 403)
+
+    def test_employee_driven_project_workflow_and_monitoring(self):
+        """
+        Verify employee-driven project/task recording workflow and admin read-only monitoring:
+        1. Employee starts a task under project 'E-Commerce Platform' without admin pre-creating it.
+        2. Stopping timer leaves task In Progress.
+        3. Employee adds a progress note.
+        4. Resuming unfinished task reuses the same canonical task without creating duplicate.
+        5. Employee explicitly marks task completed (sets completed_at and completed_by).
+        6. Employee can reopen their completed task with mandatory reason.
+        7. Other employees cannot reopen it.
+        8. Admin monitoring view derives status, completion %, and first-start timestamp.
+        """
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.emp1_token.key}')
+        
+        # 1. Start task
+        res_start = self.client.post('/api/tasks/start/', {
+            'project_name': 'E-Commerce Platform',
+            'task_name': 'Payment Gateway Integration',
+            'description': 'Stripe checkout webhook integration'
+        }, format='json')
+        self.assertEqual(res_start.status_code, 201)
+        task_log_id = res_start.data['task']['task_log_id']
+        project_task_id = res_start.data['task']['project_task_id']
+        self.assertIsNotNone(project_task_id)
+
+        # 2. Stop timer -> TaskLog ended, but ProjectTask remains IN_PROGRESS!
+        res_stop = self.client.post('/api/tasks/end/', {
+            'task_log_id': task_log_id,
+            'is_completed': False
+        }, format='json')
+        self.assertEqual(res_stop.status_code, 200)
+
+        ptask = ProjectTask.objects.get(task_id=project_task_id)
+        self.assertEqual(ptask.status, 'IN_PROGRESS')
+        self.assertIsNone(ptask.completed_at)
+
+        # 3. Add progress note
+        res_note = self.client.post(f'/api/project-tasks/{project_task_id}/note/', {
+            'content': 'Webhook signature verified; idempotency key tests passing.'
+        }, format='json')
+        self.assertEqual(res_note.status_code, 200)
+
+        # 4. Resume work on same task with project_task_id -> does not duplicate task!
+        res_resume = self.client.post('/api/tasks/start/', {
+            'project_name': 'E-Commerce Platform',
+            'task_name': 'Payment Gateway Integration',
+            'project_task_id': project_task_id
+        }, format='json')
+        self.assertEqual(res_resume.status_code, 201)
+        self.assertEqual(res_resume.data['task']['project_task_id'], project_task_id)
+        self.assertEqual(ProjectTask.objects.filter(project__name__iexact='E-Commerce Platform').count(), 1)
+
+        # 5. Explicitly complete task
+        task_log2_id = res_resume.data['task']['task_log_id']
+        res_complete = self.client.post('/api/tasks/end/', {
+            'task_log_id': task_log2_id,
+            'is_completed': True
+        }, format='json')
+        self.assertEqual(res_complete.status_code, 200)
+        ptask.refresh_from_db()
+        self.assertEqual(ptask.status, 'COMPLETED')
+        self.assertIsNotNone(ptask.completed_at)
+        self.assertEqual(ptask.completed_by, self.emp1)
+
+        # 6. Employee reopens their own task with reason
+        res_reopen = self.client.post(f'/api/project-tasks/{project_task_id}/reopen/', {
+            'reason': 'Customer requested PayPal addition to checkout'
+        }, format='json')
+        self.assertEqual(res_reopen.status_code, 200)
+        ptask.refresh_from_db()
+        self.assertEqual(ptask.status, 'IN_PROGRESS')
+        self.assertIsNone(ptask.completed_at)
+        self.assertEqual(ptask.reopen_reason, 'Customer requested PayPal addition to checkout')
+
+        # Re-complete it for monitoring check
+        self.client.post(f'/api/project-tasks/{project_task_id}/complete/')
+
+        # 7. Admin monitoring view
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
+        res_admin_p = self.client.get('/api/projects/')
+        self.assertEqual(res_admin_p.status_code, 200)
+        self.assertTrue(res_admin_p.data['count'] >= 1)
+        
+        ecom_proj = next(p for p in res_admin_p.data['projects'] if p['name'] == 'E-Commerce Platform')
+        self.assertEqual(ecom_proj['status'], 'ALL_RECORDED_COMPLETED')
+        self.assertEqual(ecom_proj['completion_percentage'], 100.0)
+        self.assertIn('Started at', ecom_proj['started_at_display'])
+        self.assertEqual(len(ecom_proj['assigned_employees']), 1)
+        self.assertEqual(ecom_proj['assigned_employees'][0]['id'], self.emp1.id)
+
+    def test_project_progress_period_filters_and_activity_matching(self):
+        """
+        Verify date-wise, weekly, monthly, and custom period filters in Project Progress Hub:
+        1. Projects matched by activity (work sessions, starts, completions, notes).
+        2. Older project created last month appears when worked on this week.
+        3. Accurate period totals (distinct projects, tasks worked, starts, completions, work time).
+        4. Distinguishing work time in period from lifetime tracked time.
+        5. Employee-filtered progress labeled 'Selected Employee's Task Completion'.
+        6. Empty periods return 0 matching projects.
+        7. Detail view returns period-scoped tasks, work sessions, progress notes, and employee contributions.
+        """
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
+
+        # Create an older project (created in Oct 2026)
+        p_old = Project.objects.create(
+            name="Legacy Billing Engine",
+            description="Created last month",
+            status="IN_PROGRESS"
+        )
+        t_old = ProjectTask.objects.create(
+            project=p_old,
+            title="Database Migration Script",
+            status="IN_PROGRESS",
+            assigned_to=self.emp1,
+            total_duration_seconds=7200 # 2 lifetime hours
+        )
+
+        # October 15 session for old project (2 hours = 7200s)
+        # 10:00 AM IST to 12:00 PM IST on Oct 15, 2026
+        # In UTC: Oct 15 04:30:00Z to 06:30:00Z
+        WorkSession.objects.create(
+            task=t_old,
+            user=self.emp1,
+            date="2026-10-15",
+            start_time="2026-10-15T04:30:00Z",
+            end_time="2026-10-15T06:30:00Z",
+            duration_seconds=7200,
+            status="ENDED",
+            work_segments=[{
+                'start_time': '2026-10-15T04:30:00Z',
+                'end_time': '2026-10-15T06:30:00Z',
+                'duration_seconds': 7200
+            }]
+        )
+
+        # Work recorded THIS WEEK (Nov 3, 2026) on the old project!
+        # 10:00 AM IST to 11:30 AM IST (1.5 hours = 5400s)
+        # In UTC: Nov 3 04:30:00Z to 06:00:00Z
+        WorkSession.objects.create(
+            task=t_old,
+            user=self.emp1,
+            date="2026-11-03",
+            start_time="2026-11-03T04:30:00Z",
+            end_time="2026-11-03T06:00:00Z",
+            duration_seconds=5400,
+            status="ENDED",
+            work_segments=[{
+                'start_time': '2026-11-03T04:30:00Z',
+                'end_time': '2026-11-03T06:00:00Z',
+                'duration_seconds': 5400
+            }]
+        )
+        t_old.total_duration_seconds += 5400
+        t_old.save()
+
+        # Add a progress note on Nov 3, 2026
+        TaskProgressNote.objects.create(
+            task=t_old,
+            author=self.emp1,
+            author_name=f"{self.emp1.first_name} {self.emp1.last_name}",
+            content="Tested migration in staging environment"
+        )
+
+        # 1. TEST WEEKLY FILTER (Nov 2 - Nov 8, 2026)
+        # Older project created in Oct MUST appear because employee worked on it this week!
+        res_weekly = self.client.get('/api/projects/?period=weekly&date=2026-11-03')
+        self.assertEqual(res_weekly.status_code, 200)
+        proj_names_weekly = [p['name'] for p in res_weekly.data['projects']]
+        self.assertIn("Legacy Billing Engine", proj_names_weekly)
+
+        legacy_p_weekly = next(p for p in res_weekly.data['projects'] if p['name'] == "Legacy Billing Engine")
+        # Period work time must reflect ONLY this week's work (5400s = 1.5h)
+        self.assertEqual(legacy_p_weekly['period_tracked_seconds'], 5400)
+        self.assertEqual(legacy_p_weekly['period_tracked_hours'], 1.5)
+        # Lifetime tracked time must reflect full lifetime (12600s = 3.5h)
+        self.assertEqual(legacy_p_weekly['lifetime_tracked_seconds'], 12600)
+        self.assertEqual(legacy_p_weekly['current_status'], 'IN_PROGRESS')
+
+        # 2. TEST SPECIFIC DATE FILTER (2026-11-03)
+        res_date = self.client.get('/api/projects/?period=specific&date=2026-11-03')
+        self.assertEqual(res_date.status_code, 200)
+        proj_names_date = [p['name'] for p in res_date.data['projects']]
+        self.assertIn("Legacy Billing Engine", proj_names_date)
+
+        # 3. TEST EMPTY PERIOD (2026-11-01 - Sunday before the work)
+        res_empty = self.client.get('/api/projects/?period=specific&date=2026-11-01')
+        self.assertEqual(res_empty.status_code, 200)
+        proj_names_empty = [p['name'] for p in res_empty.data['projects']]
+        self.assertNotIn("Legacy Billing Engine", proj_names_empty)
+
+        # 4. TEST MONTHLY FILTER (October 2026)
+        # In October 2026, Legacy Billing Engine had 7200s (2.0h)
+        res_monthly_oct = self.client.get('/api/projects/?period=monthly&month=10&year=2026')
+        self.assertEqual(res_monthly_oct.status_code, 200)
+        legacy_oct = next(p for p in res_monthly_oct.data['projects'] if p['name'] == "Legacy Billing Engine")
+        self.assertEqual(legacy_oct['period_tracked_seconds'], 7200)
+        self.assertEqual(legacy_oct['period_tracked_hours'], 2.0)
+
+        # 5. TEST CUSTOM RANGE (Oct 10, 2026 to Oct 20, 2026)
+        res_custom = self.client.get('/api/projects/?period=custom&start_date=2026-10-10&end_date=2026-10-20')
+        self.assertEqual(res_custom.status_code, 200)
+        legacy_custom = next(p for p in res_custom.data['projects'] if p['name'] == "Legacy Billing Engine")
+        self.assertEqual(legacy_custom['period_tracked_seconds'], 7200)
+
+        # 6. TEST EMPLOYEE FILTERING COMBINED WITH PERIOD
+        res_emp1_weekly = self.client.get(f'/api/projects/?period=weekly&date=2026-11-03&employee={self.emp1.id}')
+        self.assertEqual(res_emp1_weekly.status_code, 200)
+        legacy_emp1 = next(p for p in res_emp1_weekly.data['projects'] if p['name'] == "Legacy Billing Engine")
+        self.assertIsNotNone(legacy_emp1.get('employee_progress'))
+        self.assertEqual(legacy_emp1['employee_progress']['user_id'], self.emp1.id)
+        self.assertEqual(legacy_emp1['employee_progress']['total_tasks'], 1)
+        self.assertEqual(legacy_emp1['period_tracked_seconds'], 5400)
+
+        # 7. TEST PROJECT DETAIL VIEW IN PERIOD
+        res_detail = self.client.get(f'/api/projects/{p_old.project_id}/?period=weekly&date=2026-11-03')
+        self.assertEqual(res_detail.status_code, 200)
+        self.assertEqual(len(res_detail.data['work_sessions']), 1)
+        ws_item = res_detail.data['work_sessions'][0]
+        self.assertEqual(ws_item['duration_seconds'], 5400)
+        self.assertEqual(ws_item['date_display'], '03 Nov 2026')
+        self.assertEqual(len(res_detail.data['progress_notes']), 1)
+        self.assertIn('Nov 2026', res_detail.data['progress_notes'][0]['created_at_display'])
+        self.assertEqual(res_detail.data['employee_contributions'][0]['period_duration_seconds'], 5400)
+
+    def test_hourly_report_explicit_completion_vs_timer_stop(self):
+        """
+        Verify that in the 9 AM - 8 PM hourly report:
+        - When an employee pauses/stops a task timer at 11:30 AM without completing the task,
+          it counts 30 mins worked in 11 AM - 12 PM, but 0 tasks completed.
+        - When an employee explicitly completes the task at 11:45 AM,
+          it counts 1 task completed in 11 AM - 12 PM.
+        """
+        # Target day: Nov 3, 2026
+        # 11:00 AM IST = 05:30:00 UTC
+        # 11:30 AM IST = 06:00:00 UTC
+        # 11:45 AM IST = 06:15:00 UTC
+        t_start_utc = "2026-11-03T05:30:00Z"
+        t_stop_utc = "2026-11-03T06:00:00Z"
+        t_comp_utc = "2026-11-03T06:15:00Z"
+
+        proj = Project.objects.create(name='Report Testing Project')
+        task = ProjectTask.objects.create(
+            project=proj,
+            title='Explicit Completion Task',
+            assigned_to=self.emp1,
+            status='IN_PROGRESS'
+        )
+
+        # Timer stop record (NOT completed)
+        TaskLog.objects.create(
+            task_id="log-timer-stop-only",
+            user_id=self.emp1.id,
+            employee_id="ALICE001",
+            employee_name="Alice Developer",
+            date="2026-11-03",
+            project_id=proj.project_id,
+            project_task_id=task.task_id,
+            project_name=proj.name,
+            task_name=task.title,
+            status="ENDED",
+            start_time=t_start_utc,
+            end_time=t_stop_utc,
+            duration_seconds=1800,
+            work_segments=[{"start_time": t_start_utc, "end_time": t_stop_utc, "duration_seconds": 1800}],
+            is_explicit_completed=False,
+            completed_at=None
+        )
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
+        res_report = self.client.get('/api/admin/tasks/hourly-report/?date=2026-11-03')
+        self.assertEqual(res_report.status_code, 200)
+
+        slot_11 = [s for s in res_report.data['slots'] if s['slot_index'] == 11][0]
+        # 30 mins worked
+        self.assertEqual(slot_11['total_seconds'], 1800)
+        self.assertEqual(slot_11['tasks_worked_count'], 1)
+        # Because it was just a timer stop, tasks_completed_count MUST BE 0!
+        self.assertEqual(slot_11['tasks_completed_count'], 0)
+
+        # Now simulate explicit completion of task at 11:45 AM IST
+        TaskLog.objects.create(
+            task_id="log-explicit-completed",
+            user_id=self.emp1.id,
+            employee_id="ALICE001",
+            employee_name="Alice Developer",
+            date="2026-11-03",
+            project_id=proj.project_id,
+            project_task_id=task.task_id,
+            project_name=proj.name,
+            task_name=task.title,
+            status="COMPLETED",
+            start_time=t_stop_utc,
+            end_time=t_comp_utc,
+            duration_seconds=900,
+            work_segments=[{"start_time": t_stop_utc, "end_time": t_comp_utc, "duration_seconds": 900}],
+            is_explicit_completed=True,
+            completed_at=t_comp_utc
+        )
+
+        res_report_after = self.client.get('/api/admin/tasks/hourly-report/?date=2026-11-03')
+        slot_11_after = [s for s in res_report_after.data['slots'] if s['slot_index'] == 11][0]
+        self.assertEqual(slot_11_after['total_seconds'], 2700)  # 30m + 15m = 45m (2700s)
+        self.assertEqual(slot_11_after['tasks_worked_count'], 1)
+        # Explicit completion verified!
+        self.assertEqual(slot_11_after['tasks_completed_count'], 1)
+
+    def test_employee_panel_today_tasks_and_activity(self):
+        """
+        Verifies employee panel 'My Projects & Tasks' exact visibility rule:
+        - Show a task ONLY when its original created_at falls between today at 00:00 IST and tomorrow at 00:00 IST.
+        - Yesterday's task must remain hidden even if updated, completed, or resumed today.
+        - Today's task must appear only once.
+        - Project card shown only if containing a qualifying task.
+        - Deduplication by stable ID.
+        """
+        from datetime import date
+        from zoneinfo import ZoneInfo
+        ws_tz = ZoneInfo("Asia/Kolkata")
+        today_date = date.today()
+        yesterday_date = today_date - timedelta(days=1)
+
+        # Timestamps in Asia/Kolkata
+        yesterday_dt_utc = datetime(yesterday_date.year, yesterday_date.month, yesterday_date.day, 10, 0, 0, tzinfo=ws_tz).astimezone(timezone.utc)
+        today_dt_utc = datetime(today_date.year, today_date.month, today_date.day, 10, 0, 0, tzinfo=ws_tz).astimezone(timezone.utc)
+
+        proj_active = Project.objects.create(name="Active Project", status="IN_PROGRESS")
+        proj_old = Project.objects.create(name="Yesterday Project", status="IN_PROGRESS")
+
+        # 1. Task created yesterday, updated & completed today (MUST REMAIN HIDDEN)
+        t_yesterday = ProjectTask.objects.create(
+            project=proj_old,
+            title="Yesterday Task",
+            assigned_to=self.emp1,
+            status="COMPLETED",
+            completed_at=today_dt_utc,
+            completed_by=self.emp1
+        )
+        ProjectTask.objects.filter(task_id=t_yesterday.task_id).update(created_at=yesterday_dt_utc)
+        # Even with work session today, must remain hidden because original created_at is yesterday
+        WorkSession.objects.create(
+            task=t_yesterday,
+            user=self.emp1,
+            date=today_date.isoformat(),
+            start_time=today_dt_utc.isoformat(),
+            end_time=(today_dt_utc + timedelta(seconds=1800)).isoformat(),
+            duration_seconds=1800,
+            status="ENDED"
+        )
+
+        # 2. Task created today (MUST APPEAR EXACTLY ONCE)
+        t_today = ProjectTask.objects.create(
+            project=proj_active,
+            title="Today Task",
+            assigned_to=self.emp1,
+            status="IN_PROGRESS"
+        )
+        # Set created_at to today_dt_utc
+        ProjectTask.objects.filter(task_id=t_today.task_id).update(created_at=today_dt_utc)
+
+        # 3. Another employee's task created today (MUST NEVER APPEAR FOR EMP1)
+        t_other = ProjectTask.objects.create(
+            project=proj_active,
+            title="Other Employee Today Task",
+            assigned_to=self.emp2,
+            status="IN_PROGRESS"
+        )
+
+        # Query My Tasks as Alice (emp1)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.emp1_token.key}')
+        res = self.client.get('/api/tasks/my-tasks/')
+        self.assertEqual(res.status_code, 200)
+
+        task_ids = [t['task_id'] for t in res.data['tasks']]
+
+        # 1. Verification of Exact Visibility Rules
+        self.assertNotIn(t_yesterday.task_id, task_ids, "Yesterday task must remain hidden even if updated/completed today")
+        self.assertNotIn(t_other.task_id, task_ids, "Other employee's task must never appear")
+        self.assertIn(t_today.task_id, task_ids, "Task created today must appear")
+        self.assertEqual(task_ids.count(t_today.task_id), 1, "Today's task must appear exactly once")
+
+        # 2. Project visibility: Yesterday Project has no qualifying tasks, so must NOT appear
+        returned_project_ids = [p['project_id'] for p in res.data['projects']]
+        self.assertIn(proj_active.project_id, returned_project_ids)
+        self.assertNotIn(proj_old.project_id, returned_project_ids, "Project without tasks created today must not appear")
+
+        # 3. Summary counters strictly reflect tasks created today
+        summary = res.data['summary']
+        self.assertEqual(summary['total_tasks'], 1)
+        self.assertEqual(summary['in_progress'], 1)
+        self.assertEqual(summary['completed'], 0)
+        self.assertEqual(summary['not_started'], 0)
+
+        # 4. With all_history=true, yesterday's task is accessible in history
+        res_all = self.client.get('/api/tasks/my-tasks/?all_history=true')
+        self.assertEqual(res_all.status_code, 200)
+        all_task_ids = [t['task_id'] for t in res_all.data['tasks']]
+        self.assertIn(t_yesterday.task_id, all_task_ids)
+
+
+class AdminFilterAuditTests(TestCase):
+    """
+    Comprehensive QA verification test suite for all admin module filters:
+    - Live Attendance & Reports: date ranges, inverted dates, month selection, employee, department, project, task
+    - AND logic across multiple filters
+    - Whitespace trimming and case-insensitive matching
+    - Export with filters applied
+    - Analytics dashboard custom date validation
+    - Daily Task Reports & Hourly Task Reports 11 slots (9 AM–8 PM)
+    """
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_superuser(
+            username='admin_audit@knowletive.com',
+            email='admin_audit@knowletive.com',
+            password='password123',
+            first_name='Admin',
+            last_name='Audit',
+            role='ADMIN'
+        )
+        self.admin_token, _ = Token.objects.get_or_create(user=self.admin)
+
+        self.emp1 = User.objects.create_user(
+            username='charlie@knowletive.com',
+            email='charlie@knowletive.com',
+            password='password123',
+            first_name='Charlie',
+            last_name='Chaplin',
+            role='EMPLOYEE',
+            department='Engineering',
+            employee_id='EMP201'
+        )
+        self.emp1_token, _ = Token.objects.get_or_create(user=self.emp1)
+
+        self.emp2 = User.objects.create_user(
+            username='diana@knowletive.com',
+            email='diana@knowletive.com',
+            password='password123',
+            first_name='Diana',
+            last_name='Prince',
+            role='EMPLOYEE',
+            department='Design',
+            employee_id='EMP202'
+        )
+        self.emp2_token, _ = Token.objects.get_or_create(user=self.emp2)
+
+        SystemSettings.objects.all().delete()
+        SystemSettings.objects.create(
+            company_name='Knowletive',
+            workspace_name='Knowletive HQ',
+            work_start_time='09:00',
+            work_end_time='20:00',
+            timezone='Asia/Kolkata'
+        )
+
+    def test_reports_date_range_validation_inverted_dates(self):
+        """Invalid date ranges (start_date > end_date) must return 400 with a clear error message."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
+        res = self.client.get('/api/admin/reports/?start_date=2026-11-10&end_date=2026-11-01')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('Start date cannot be after end date', res.data.get('error', ''))
+
+        # Also for export endpoint
+        res_exp = self.client.get('/api/admin/reports/export/?start_date=2026-11-10&end_date=2026-11-01&format=csv')
+        self.assertEqual(res_exp.status_code, 400)
+        self.assertIn('Start date cannot be after end date', res_exp.data.get('error', ''))
+
+    def test_analytics_date_range_validation(self):
+        """Analytics custom range with start_date > end_date must return 400."""
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
+        res = self.client.get('/api/analytics/dashboard/?period=custom&start_date=2026-11-10&end_date=2026-11-01')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('Start date cannot be after end date', res.data.get('error', ''))
+
+    def test_reports_and_daily_tasks_multi_filter_and_logic(self):
+        """
+        Verify multiple filters work together with strict AND logic:
+        Charlie works on 'Alpha Portal' on 2026-11-02.
+        Diana works on 'Beta App' on 2026-11-02.
+        Charlie works on 'Beta App' on 2026-11-03.
+        """
+        TaskLog.objects.create(
+            task_id="t-c1",
+            user_id=self.emp1.id,
+            employee_id="EMP201",
+            employee_name="Charlie Chaplin",
+            date="2026-11-02",
+            project_name="Alpha Portal",
+            task_name="Backend API",
+            status="COMPLETED",
+            start_time="2026-11-02T04:30:00Z",
+            end_time="2026-11-02T05:30:00Z",
+            duration_seconds=3600
+        )
+
+        TaskLog.objects.create(
+            task_id="t-d1",
+            user_id=self.emp2.id,
+            employee_id="EMP202",
+            employee_name="Diana Prince",
+            date="2026-11-02",
+            project_name="Beta App",
+            task_name="Figma Mockups",
+            status="COMPLETED",
+            start_time="2026-11-02T05:00:00Z",
+            end_time="2026-11-02T06:00:00Z",
+            duration_seconds=3600
+        )
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
+
+        # 1. Daily Task Report: Filter by date 2026-11-02 AND employee EMP201 -> only Charlie's task
+        res1 = self.client.get(f'/api/admin/tasks/report/?date=2026-11-02&employee_id={self.emp1.id}')
+        self.assertEqual(res1.status_code, 200)
+        self.assertEqual(len(res1.data['tasks']), 1)
+        self.assertEqual(res1.data['tasks'][0]['employee_id'], 'EMP201')
+
+        # 2. Daily Task Report: Filter by date 2026-11-02 AND project 'Beta' -> only Diana's task
+        res2 = self.client.get('/api/admin/tasks/report/?date=2026-11-02&project=Beta')
+        self.assertEqual(res2.status_code, 200)
+        self.assertEqual(len(res2.data['tasks']), 1)
+        self.assertEqual(res2.data['tasks'][0]['employee_id'], 'EMP202')
+
+        # 3. Daily Task Report: Filter by date 2026-11-02 AND employee EMP201 AND project 'Beta' -> 0 tasks (AND logic verified!)
+        res3 = self.client.get(f'/api/admin/tasks/report/?date=2026-11-02&employee_id={self.emp1.id}&project=Beta')
+        self.assertEqual(res3.status_code, 200)
+        self.assertEqual(len(res3.data['tasks']), 0)
+
+        # 4. Whitespace trimming: Project with leading/trailing spaces '  Alpha  ' matches 'Alpha Portal'
+        res4 = self.client.get(f'/api/admin/tasks/report/?date=2026-11-02&project=%20%20Alpha%20%20')
+        self.assertEqual(res4.status_code, 200)
+        self.assertEqual(len(res4.data['tasks']), 1)
+
+    def test_hourly_task_report_eleven_slots_and_slot_filter(self):
+        """
+        Verify that the Hourly Task Report:
+        - Covers all 11 one-hour slots (9 AM–8 PM)
+        - Can filter by slot parameter (e.g. slot=14 for 2:00 PM–3:00 PM)
+        - Rejects invalid slot indices (< 9 or > 19)
+        """
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.admin_token.key}')
+        res_all = self.client.get('/api/admin/tasks/hourly-report/?date=2026-11-02')
+        self.assertEqual(res_all.status_code, 200)
+        self.assertEqual(len(res_all.data['slots']), 11)
+        # Check start and end slot labels
+        self.assertEqual(res_all.data['slots'][0]['slot_label'], '9:00 AM–10:00 AM')
+        self.assertEqual(res_all.data['slots'][-1]['slot_label'], '7:00 PM–8:00 PM')
+
+        # Single slot filter: slot=14 (2:00 PM–3:00 PM)
+        res_slot14 = self.client.get('/api/admin/tasks/hourly-report/?date=2026-11-02&slot=14')
+        self.assertEqual(res_slot14.status_code, 200)
+        self.assertEqual(len(res_slot14.data['slots']), 1)
+        self.assertEqual(res_slot14.data['slots'][0]['slot_label'], '2:00 PM–3:00 PM')
+
+        # Invalid slot filter: slot=8 or slot=21
+        res_invalid = self.client.get('/api/admin/tasks/hourly-report/?date=2026-11-02&slot=8')
+        self.assertEqual(res_invalid.status_code, 400)
+        self.assertIn('between 9 and 19', res_invalid.data.get('error', ''))
+
+
+
+
 
 
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { formatHumanReadableDuration } from '../utils/formatters';
 import {
   ResponsiveContainer,
@@ -148,31 +148,46 @@ export default function RechartsAnalyticsDashboard({
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
 
+  const analyticsReqSeqRef = useRef(0);
+
   // Fetch from Django Backend
   const fetchAnalytics = useCallback(async (isBackground = false) => {
+    if (period === 'custom' && startDate && endDate && startDate > endDate) {
+      setError('Invalid date range: Start date cannot be after end date.');
+      setLoading(false);
+      return;
+    }
+
+    const seq = ++analyticsReqSeqRef.current;
     if (!isBackground) setLoading(true);
     setError('');
     try {
       const params = new URLSearchParams();
       params.append('period', period);
       if (period === 'custom') {
-        if (startDate) params.append('start_date', startDate);
-        if (endDate) params.append('end_date', endDate);
+        if (startDate) params.append('start_date', startDate.trim());
+        if (endDate) params.append('end_date', endDate.trim());
       }
       if (employeeId) {
-        params.append('employee_id', employeeId);
+        params.append('employee_id', employeeId.trim());
       }
       if (projectFilter.trim()) {
         params.append('project', projectFilter.trim());
       }
 
       const res = await api.get<AnalyticsApiResponse>(`/analytics/dashboard/?${params.toString()}`);
-      setData(res.data);
+      if (seq === analyticsReqSeqRef.current) {
+        setData(res.data);
+      }
     } catch (err: any) {
-      console.error('Failed to load analytics:', err);
-      setError(err.response?.data?.error || 'Failed to load analytics data from server.');
+      if (seq === analyticsReqSeqRef.current) {
+        console.error('Failed to load analytics:', err);
+        setError(err.response?.data?.error || 'Failed to load analytics data from server.');
+      }
     } finally {
-      if (!isBackground) setLoading(false);
+      if (seq === analyticsReqSeqRef.current) {
+        if (!isBackground) setLoading(false);
+      }
     }
   }, [period, startDate, endDate, employeeId, projectFilter]);
 
@@ -180,6 +195,7 @@ export default function RechartsAnalyticsDashboard({
   useEffect(() => {
     fetchAnalytics();
     const intervalTimer = setInterval(() => {
+      if (document.hidden) return; // Pause polling when tab is hidden
       fetchAnalytics(true);
     }, 30000);
 
@@ -334,7 +350,7 @@ export default function RechartsAnalyticsDashboard({
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="clay-input w-full text-xs font-mono"
+                  className="clay-input w-full text-sm font-mono"
                 />
               </div>
               <div>
@@ -345,13 +361,13 @@ export default function RechartsAnalyticsDashboard({
                   type="date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
-                  className="clay-input w-full text-xs font-mono"
+                  className="clay-input w-full text-sm font-mono"
                 />
               </div>
             </>
           ) : (
-            <div className="sm:col-span-2 flex items-center gap-2 p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl text-xs text-slate-600">
-              <Calendar size={15} className="text-indigo-600 shrink-0" />
+            <div className="sm:col-span-2 flex items-center gap-2 p-2.5 min-h-[44px] bg-slate-50 border border-slate-200/80 rounded-xl text-xs sm:text-sm text-slate-600">
+              <Calendar size={16} className="text-indigo-600 shrink-0" />
               <span>
                 Active Window: <strong className="text-slate-900 font-mono">{data?.date_range.start_date || '...'}</strong> to{' '}
                 <strong className="text-slate-900 font-mono">{data?.date_range.end_date || '...'}</strong>
@@ -368,7 +384,7 @@ export default function RechartsAnalyticsDashboard({
               <select
                 value={employeeId}
                 onChange={(e) => setEmployeeId(e.target.value)}
-                className="clay-input w-full text-xs"
+                className="clay-input w-full text-sm"
               >
                 <option value="">All Permitted Employees</option>
                 {data?.filters.employees.map((emp) => (
@@ -379,8 +395,8 @@ export default function RechartsAnalyticsDashboard({
               </select>
             </div>
           ) : (
-            <div className="flex items-center gap-2 p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl text-xs text-slate-600">
-              <Users size={15} className="text-emerald-600 shrink-0" />
+            <div className="flex items-center gap-2 p-2.5 min-h-[44px] bg-slate-50 border border-slate-200/80 rounded-xl text-xs sm:text-sm text-slate-600">
+              <Users size={16} className="text-emerald-600 shrink-0" />
               <span>Role: <strong className="text-slate-900">Personal Employee Data Only</strong></span>
             </div>
           )}
@@ -391,15 +407,15 @@ export default function RechartsAnalyticsDashboard({
               Filter by Project
             </label>
             <div className="relative">
+              <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
               <input
                 type="text"
                 list="projects-filter-datalist"
                 placeholder="All Projects or search..."
                 value={projectFilter}
                 onChange={(e) => setProjectFilter(e.target.value)}
-                className="clay-input w-full pl-8 text-xs"
+                className="clay-input has-icon-left w-full pl-11 pr-3.5 text-sm min-h-[44px]"
               />
-              <Search size={14} className="absolute left-2.5 top-3 text-slate-400" />
               <datalist id="projects-filter-datalist">
                 {data?.filters?.projects?.map((proj) => (
                   <option key={proj} value={proj} />
