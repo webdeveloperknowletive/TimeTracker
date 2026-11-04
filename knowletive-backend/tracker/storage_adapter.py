@@ -172,7 +172,7 @@ class TimeEventStorage:
             except Exception: base_sec = 0
         return base_sec
 
-    def start_task(self, user_id, project_name, task_name, description, user_email, employee_id='', employee_name=''):
+    def start_task(self, user_id, project_name, task_name, description, user_email, employee_id='', employee_name='', project_task_id=None):
         with self._lock:
             user_id = int(user_id)
             if not project_name or not project_name.strip(): raise ValueError("Project name is required.")
@@ -186,12 +186,79 @@ class TimeEventStorage:
                 self.end_task(user_id=user_id, task_log_id=active_existing.get('task_log_id') if isinstance(active_existing, dict) else active_existing.task_id, user_email=user_email)
                 
             task_log_id = str(uuid.uuid4())
+
+            # Find or create stable Project & ProjectTask
+            project_id_val = None
+            task_id_val = project_task_id
+            try:
+                from .models import Project, ProjectTask, WorkSession
+                clean_pname = project_name.strip()
+                clean_tname = task_name.strip()
+                
+                project = Project.objects.filter(name__iexact=clean_pname).first()
+                if not project:
+                    project = Project.objects.create(
+                        name=clean_pname,
+                        description=f"Project for {clean_pname}",
+                        status='IN_PROGRESS',
+                        first_started_at=now_utc_dt
+                    )
+                elif not project.first_started_at:
+                    project.first_started_at = now_utc_dt
+                    project.save(update_fields=['first_started_at'])
+                project_id_val = project.project_id
+
+                if task_id_val:
+                    project_task = ProjectTask.objects.filter(task_id=task_id_val, assigned_to_id=user_id).first()
+                else:
+                    # Check for existing unfinished task with same title under this project for this employee
+                    project_task = ProjectTask.objects.filter(
+                        project=project,
+                        assigned_to_id=user_id,
+                        title__iexact=clean_tname
+                    ).exclude(status='COMPLETED').first()
+
+                if not project_task:
+                    project_task = ProjectTask.objects.create(
+                        project=project,
+                        title=clean_tname,
+                        description=(description or '').strip(),
+                        assigned_to_id=user_id,
+                        status='IN_PROGRESS',
+                        first_started_at=now_utc_dt
+                    )
+                else:
+                    if project_task.status == 'NOT_STARTED':
+                        project_task.status = 'IN_PROGRESS'
+                    if not project_task.first_started_at:
+                        project_task.first_started_at = now_utc_dt
+                    if description and description.strip():
+                        project_task.description = description.strip()
+                    project_task.save()
+
+                task_id_val = project_task.task_id
+                
+                # Create WorkSession
+                WorkSession.objects.create(
+                    task=project_task,
+                    user_id=user_id,
+                    date=today_ist,
+                    start_time=now_utc,
+                    current_segment_start=now_utc,
+                    status='IN_PROGRESS',
+                    task_log_id=task_log_id
+                )
+            except Exception:
+                pass
+
             TaskLog.objects.create(
                 task_id=task_log_id, user_id=user_id, employee_id=employee_id or '', employee_name=employee_name or '',
                 date=today_ist, project_name=project_name.strip(), task_name=task_name.strip(),
                 description=(description or '').strip(), start_time=now_utc, end_time=None,
                 status='IN_PROGRESS', duration_seconds=0, current_segment_start=now_utc,
-                work_segments=[], created_at=now_utc, updated_at=now_utc
+                work_segments=[], created_at=now_utc, updated_at=now_utc,
+                project_id=project_id_val, project_task_id=task_id_val,
+                is_explicit_completed=False, completed_at=None
             )
             new_task_dict = list(TaskLog.objects.filter(task_id=task_log_id).values())[0]
             new_task_dict['task_log_id'] = new_task_dict.pop('task_id')
@@ -245,7 +312,7 @@ class TimeEventStorage:
                 return t_dict
             return None
 
-    def end_task(self, user_id, task_log_id=None, user_email='employee'):
+    def end_task(self, user_id, task_log_id=None, user_email='employee', is_explicit_completed=False):
         with self._lock:
             user_id = int(user_id)
             now_utc_dt = datetime.now(timezone.utc)
@@ -258,6 +325,7 @@ class TimeEventStorage:
             task = qs.first()
             if not task: return None
             
+            seg_sec = 0
             if task.status == 'IN_PROGRESS':
                 seg_start_str = task.current_segment_start or task.start_time
                 seg_sec = 0
@@ -274,12 +342,42 @@ class TimeEventStorage:
             task.current_segment_start = None
             task.end_time = now_utc
             task.status = 'COMPLETED'
+            if is_explicit_completed:
+                task.is_explicit_completed = True
+                task.completed_at = now_utc
+            else:
+                task.is_explicit_completed = False
             task.updated_at = now_utc
             task.save()
+
+            if task.project_task_id:
+                try:
+                    from .models import ProjectTask, WorkSession, User
+                    p_task = ProjectTask.objects.filter(task_id=task.project_task_id).first()
+                    if p_task:
+                        p_task.total_duration_seconds += seg_sec
+                        if is_explicit_completed:
+                            p_task.status = 'COMPLETED'
+                            p_task.completed_at = now_utc_dt
+                            user_obj = User.objects.filter(id=user_id).first()
+                            if user_obj:
+                                p_task.completed_by = user_obj
+                        p_task.save()
+
+                    ws = WorkSession.objects.filter(task_log_id=task.task_id).first()
+                    if ws:
+                        ws.duration_seconds = task.duration_seconds
+                        ws.work_segments = task.work_segments
+                        ws.current_segment_start = None
+                        ws.end_time = now_utc
+                        ws.status = 'ENDED'
+                        ws.save()
+                except Exception:
+                    pass
             
             t_dict = list(TaskLog.objects.filter(task_id=task.task_id).values())[0]
             t_dict['task_log_id'] = t_dict.pop('task_id')
-            self.log_audit(action="TASK_ENDED", actor=user_email, details={"task_log_id": task.task_id, "project_name": task.project_name, "task_name": task.task_name, "end_time": now_utc})
+            self.log_audit(action="TASK_ENDED", actor=user_email, details={"task_log_id": task.task_id, "project_name": task.project_name, "task_name": task.task_name, "end_time": now_utc, "is_completed": is_explicit_completed})
             return t_dict
 
     def end_any_active_task_for_user(self, user_id, end_time_iso=None):

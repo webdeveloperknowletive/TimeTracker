@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Users, Download, LogOut, Clock, Shield, Search, 
@@ -6,11 +6,14 @@ import {
   Settings as SettingsIcon, Calendar,
   FolderKanban, ListTodo, RefreshCw, KeyRound, Copy,
   CheckCircle2, UserCheck, UserX, Bell, Link2, TrendingUp,
-  X, Filter, CheckCircle
+  X, Filter, CheckCircle, Eye, EyeOff, Menu, FolderGit2
 } from 'lucide-react';
 import api from '../lib/api';
 import DailyTaskAnalyticsDashboard from '../components/DailyTaskAnalyticsDashboard';
 import RechartsAnalyticsDashboard from '../components/RechartsAnalyticsDashboard';
+import HourlyEmployeeTaskReport from '../components/HourlyEmployeeTaskReport';
+import type { TaskCountFilterKey } from '../components/TaskCountSummaryCards';
+import AdminProjectProgress from '../components/AdminProjectProgress';
 import { formatHumanReadableDuration } from '../utils/formatters';
 
 function getTodayIsoDate(): string {
@@ -22,7 +25,8 @@ function getTodayIsoDate(): string {
 }
 
 export default function Admin() {
-  const [activeTab, setActiveTab] = useState<'attendance' | 'tasks' | 'analytics' | 'reports' | 'users' | 'invitations' | 'settings'>('attendance');
+  const [activeTab, setActiveTab] = useState<'attendance' | 'projects' | 'tasks' | 'analytics' | 'reports' | 'users' | 'invitations' | 'settings'>('attendance');
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
   
   // Overview data
   const [dashboardData, setDashboardData] = useState<any>(null);
@@ -52,6 +56,7 @@ export default function Admin() {
   const [showNotifDropdown, setShowNotifDropdown] = useState<boolean>(false);
 
   // Daily Tasks Report state & filters
+  const [taskModuleView, setTaskModuleView] = useState<'summary' | 'hourly'>('summary');
   const [taskReportDate, setTaskReportDate] = useState<string>(getTodayIsoDate());
   const [taskFilterEmpId, setTaskFilterEmpId] = useState<string>('');
   const [taskFilterProject, setTaskFilterProject] = useState<string>('');
@@ -63,10 +68,13 @@ export default function Admin() {
     summary: { total_tasks: 0, active_in_progress: 0, completed: 0, total_seconds: 0, total_hours: 0 }
   });
   const [loadingTaskReport, setLoadingTaskReport] = useState<boolean>(false);
+  const [dailyTaskCardFilter, setDailyTaskCardFilter] = useState<TaskCountFilterKey | null>(null);
   
   // Reports filter & data
   const [reports, setReports] = useState<any[]>([]);
   const [reportsSummary, setReportsSummary] = useState<any>(null);
+  const [loadingReports, setLoadingReports] = useState<boolean>(false);
+  const [reportsError, setReportsError] = useState<string>('');
   const [reportDateMode, setReportDateMode] = useState<'range' | 'month'>('range');
   const [reportYear, setReportYear] = useState<string>('2026');
   const [reportMonth, setReportMonth] = useState<string>('10');
@@ -77,11 +85,16 @@ export default function Admin() {
   const [reportFilterProject, setReportFilterProject] = useState<string>('');
   const [reportFilterTask, setReportFilterTask] = useState<string>('');
 
+  // Race condition sequence refs for rapid filter updates
+  const reportsReqSeqRef = useRef(0);
+  const taskReportsReqSeqRef = useRef(0);
+
   // User management data & modal
   const [usersList, setUsersList] = useState<any[]>([]);
   const [userSearchQuery, setUserSearchQuery] = useState<string>('');
   const [showAddUserModal, setShowAddUserModal] = useState<boolean>(false);
   const [editUserData, setEditUserData] = useState<any>(null);
+  const [showUserPassword, setShowUserPassword] = useState<boolean>(false);
   const [userFormData, setUserFormData] = useState({
     username: '',
     first_name: '',
@@ -128,49 +141,81 @@ export default function Admin() {
   const loadAllAdminData = async () => {
     setLoading(true);
     try {
-      const [dashRes, usersRes, settingsRes, invRes, notifRes] = await Promise.all([
+      // 1. Critical initial render: overview attendance dashboard & company settings
+      const [dashRes, settingsRes] = await Promise.all([
         api.get('/admin/dashboard/'),
-        api.get('/admin/users/'),
-        api.get('/settings/'),
-        api.get('/admin/invitations/').catch(() => ({ data: { invitations: [] } })),
-        api.get('/admin/notifications/').catch(() => ({ data: { notifications: [], unread_count: 0 } }))
+        api.get('/settings/').catch(() => ({ data: null }))
       ]);
       setDashboardData(dashRes.data);
-      setUsersList(usersRes.data.users || []);
       if (settingsRes.data) {
         setSettingsForm(settingsRes.data);
       }
-      setInvitationsList(invRes.data?.invitations || []);
-      setNotificationsList(notifRes.data?.notifications || []);
-      setUnreadNotifCount(notifRes.data?.unread_count || 0);
       setErrorMsg('');
+      setLoading(false);
+
+      // 2. Secondary data loads asynchronously in the background without blocking the UI
+      Promise.all([
+        api.get('/admin/users/').catch(() => ({ data: { users: [] } })),
+        api.get('/admin/invitations/').catch(() => ({ data: { invitations: [] } })),
+        api.get('/admin/notifications/').catch(() => ({ data: { notifications: [], unread_count: 0 } }))
+      ]).then(([usersRes, invRes, notifRes]) => {
+        setUsersList(usersRes.data?.users || []);
+        setInvitationsList(invRes.data?.invitations || []);
+        setNotificationsList(notifRes.data?.notifications || []);
+        setUnreadNotifCount(notifRes.data?.unread_count || 0);
+      });
     } catch (err: any) {
       setErrorMsg(err.response?.data?.error || 'Failed to load administrator data.');
-    } finally {
       setLoading(false);
     }
   };
 
   const loadReports = async () => {
+    if (reportDateMode === 'range' && startDate && endDate && startDate > endDate) {
+      setErrorMsg('Invalid date range: Start date cannot be after end date.');
+      setReportsError('Invalid date range: Start date cannot be after end date.');
+      setReports([]);
+      setReportsSummary(null);
+      return;
+    }
+
+    const seq = ++reportsReqSeqRef.current;
+    setLoadingReports(true);
+    setReportsError('');
     try {
       const params = new URLSearchParams();
+      params.append('mode', reportDateMode);
       if (reportDateMode === 'month') {
-        params.append('year', reportYear);
-        params.append('month', reportMonth);
+        params.append('year', reportYear.trim());
+        params.append('month', reportMonth.trim());
       } else {
-        if (startDate) params.append('start_date', startDate);
-        if (endDate) params.append('end_date', endDate);
+        if (startDate) params.append('start_date', startDate.trim());
+        if (endDate) params.append('end_date', endDate.trim());
       }
-      if (filterDept) params.append('department', filterDept);
-      if (filterEmpId) params.append('employee_id', filterEmpId);
-      if (reportFilterProject) params.append('project', reportFilterProject);
-      if (reportFilterTask) params.append('task', reportFilterTask);
+      if (filterDept.trim()) params.append('department', filterDept.trim());
+      if (filterEmpId.trim()) params.append('employee_id', filterEmpId.trim());
+      if (reportFilterProject.trim()) params.append('project', reportFilterProject.trim());
+      if (reportFilterTask.trim()) params.append('task', reportFilterTask.trim());
       
       const res = await api.get(`/admin/reports/?${params.toString()}`);
-      setReports(res.data.reports || []);
-      setReportsSummary(res.data.summary || null);
+      if (seq === reportsReqSeqRef.current) {
+        setReports(res.data.reports || []);
+        setReportsSummary(res.data.summary || null);
+        setReportsError('');
+        setErrorMsg('');
+      }
     } catch (err: any) {
-      setErrorMsg(err.response?.data?.error || 'Failed to fetch reports.');
+      if (seq === reportsReqSeqRef.current) {
+        const msg = err.response?.data?.error || 'Failed to fetch attendance reports.';
+        setErrorMsg(msg);
+        setReportsError(msg);
+        setReports([]);
+        setReportsSummary(null);
+      }
+    } finally {
+      if (seq === reportsReqSeqRef.current) {
+        setLoadingReports(false);
+      }
     }
   };
 
@@ -181,19 +226,26 @@ export default function Admin() {
   }, [activeTab, reportDateMode, reportYear, reportMonth, startDate, endDate, filterDept, filterEmpId, reportFilterProject, reportFilterTask]);
 
   const loadTaskReport = async () => {
+    const seq = ++taskReportsReqSeqRef.current;
     setLoadingTaskReport(true);
     try {
       const params = new URLSearchParams();
-      if (taskReportDate) params.append('date', taskReportDate);
-      if (taskFilterEmpId) params.append('employee_id', taskFilterEmpId);
-      if (taskFilterProject) params.append('project', taskFilterProject);
+      if (taskReportDate) params.append('date', taskReportDate.trim());
+      if (taskFilterEmpId) params.append('employee_id', taskFilterEmpId.trim());
+      if (taskFilterProject.trim()) params.append('project', taskFilterProject.trim());
 
       const res = await api.get(`/admin/tasks/report/?${params.toString()}`);
-      setTaskReportData(res.data);
+      if (seq === taskReportsReqSeqRef.current) {
+        setTaskReportData(res.data);
+      }
     } catch (err: any) {
-      setErrorMsg(err.response?.data?.error || 'Failed to fetch daily task report.');
+      if (seq === taskReportsReqSeqRef.current) {
+        setErrorMsg(err.response?.data?.error || 'Failed to fetch daily task report.');
+      }
     } finally {
-      setLoadingTaskReport(false);
+      if (seq === taskReportsReqSeqRef.current) {
+        setLoadingTaskReport(false);
+      }
     }
   };
 
@@ -207,9 +259,9 @@ export default function Admin() {
     const token = localStorage.getItem('token');
     const params = new URLSearchParams();
     params.append('format', format);
-    if (taskReportDate) params.append('date', taskReportDate);
-    if (taskFilterEmpId) params.append('employee_id', taskFilterEmpId);
-    if (taskFilterProject) params.append('project', taskFilterProject);
+    if (taskReportDate) params.append('date', taskReportDate.trim());
+    if (taskFilterEmpId) params.append('employee_id', taskFilterEmpId.trim());
+    if (taskFilterProject.trim()) params.append('project', taskFilterProject.trim());
 
     const url = `${api.defaults.baseURL}/admin/tasks/export/?${params.toString()}`;
     fetch(url, {
@@ -229,20 +281,26 @@ export default function Admin() {
   };
 
   const handleExport = (format: 'csv' | 'xlsx') => {
+    if (reportDateMode === 'range' && startDate && endDate && startDate > endDate) {
+      setErrorMsg('Invalid date range: Start date cannot be after end date.');
+      return;
+    }
+
     const token = localStorage.getItem('token');
     const params = new URLSearchParams();
     params.append('format', format);
+    params.append('mode', reportDateMode);
     if (reportDateMode === 'month') {
-      params.append('year', reportYear);
-      params.append('month', reportMonth);
+      params.append('year', reportYear.trim());
+      params.append('month', reportMonth.trim());
     } else {
-      if (startDate) params.append('start_date', startDate);
-      if (endDate) params.append('end_date', endDate);
+      if (startDate) params.append('start_date', startDate.trim());
+      if (endDate) params.append('end_date', endDate.trim());
     }
-    if (filterDept) params.append('department', filterDept);
-    if (filterEmpId) params.append('employee_id', filterEmpId);
-    if (reportFilterProject) params.append('project', reportFilterProject);
-    if (reportFilterTask) params.append('task', reportFilterTask);
+    if (filterDept.trim()) params.append('department', filterDept.trim());
+    if (filterEmpId.trim()) params.append('employee_id', filterEmpId.trim());
+    if (reportFilterProject.trim()) params.append('project', reportFilterProject.trim());
+    if (reportFilterTask.trim()) params.append('task', reportFilterTask.trim());
 
     let empNamePrefix = 'All_Employees';
     if (filterEmpId) {
@@ -325,6 +383,7 @@ export default function Admin() {
         await api.post('/admin/users/', payload);
       }
       setShowAddUserModal(false);
+      setShowUserPassword(false);
       setEditUserData(null);
       setUserFormData({ username: '', first_name: '', last_name: '', email: '', department: '', role: 'EMPLOYEE', password: '' });
       loadAllAdminData();
@@ -420,11 +479,12 @@ export default function Admin() {
   // Filtered live attendance
   const filteredAttendanceUsers = useMemo(() => {
     const employees = dashboardData?.users?.filter((u: any) => u.role === 'EMPLOYEE') || [];
+    const q = attendanceSearch.trim().toLowerCase();
     return employees.filter((u: any) => {
-      const matchesSearch = !attendanceSearch || 
-        (u.name && u.name.toLowerCase().includes(attendanceSearch.toLowerCase())) ||
-        (u.email && u.email.toLowerCase().includes(attendanceSearch.toLowerCase())) ||
-        (u.employee_id && u.employee_id.toLowerCase().includes(attendanceSearch.toLowerCase()));
+      const matchesSearch = !q || 
+        (u.name && u.name.toLowerCase().includes(q)) ||
+        (u.email && u.email.toLowerCase().includes(q)) ||
+        (u.employee_id && u.employee_id.toLowerCase().includes(q));
       
       const matchesDept = !attendanceDeptFilter || u.department === attendanceDeptFilter;
 
@@ -440,8 +500,8 @@ export default function Admin() {
 
   // Filtered user roster
   const filteredUsersList = useMemo(() => {
-    if (!userSearchQuery.trim()) return usersList;
-    const q = userSearchQuery.toLowerCase();
+    const q = userSearchQuery.trim().toLowerCase();
+    if (!q) return usersList;
     return usersList.filter(u => 
       (u.name && u.name.toLowerCase().includes(q)) ||
       (u.email && u.email.toLowerCase().includes(q)) ||
@@ -490,127 +550,337 @@ export default function Admin() {
 
   const overview = dashboardData?.overview || {};
 
+  const navItems = [
+    { id: 'attendance' as const, label: 'Live Attendance', icon: Clock },
+    { id: 'projects' as const, label: 'Project Progress', icon: FolderGit2 },
+    { id: 'analytics' as const, label: 'Analytics Dashboard', icon: TrendingUp },
+    { id: 'tasks' as const, label: 'Daily Task Reports', icon: FolderKanban },
+    { id: 'reports' as const, label: 'Reports & Exports', icon: FileSpreadsheet },
+    { id: 'users' as const, label: 'User Management', icon: Users, badge: pendingUsers.length },
+    { id: 'invitations' as const, label: 'Invitations', icon: KeyRound },
+    { id: 'settings' as const, label: 'Schedule Settings', icon: SettingsIcon },
+  ];
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans relative overflow-x-hidden selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen bg-slate-50 text-slate-800 flex font-sans relative overflow-x-hidden selection:bg-indigo-500 selection:text-white">
       {/* Ambient background glass glowing orbs */}
       <div className="fixed top-[-10%] right-[-5%] w-[45vw] h-[45vw] rounded-full bg-gradient-to-br from-indigo-200/35 to-teal-100/30 blur-3xl pointer-events-none z-0" />
       <div className="fixed bottom-[-10%] left-[-5%] w-[40vw] h-[40vw] rounded-full bg-gradient-to-tr from-sky-200/30 to-purple-100/25 blur-3xl pointer-events-none z-0" />
 
-      {/* Admin Navbar */}
-      <header className="glass-nav sticky top-0 z-40 px-4 sm:px-8 py-3.5 transition-all">
-        <div className="max-w-7xl mx-auto flex items-center justify-between relative z-10">
-          {/* Brand & Badge */}
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-600 to-teal-600 flex items-center justify-center text-white shadow-md ring-4 ring-indigo-50">
-              <Shield size={22} className="text-white drop-shadow-sm" />
+      {/* 1. DESKTOP VERTICAL SIDEBAR (~250px, fixed on left, scrolls independently on short screens) */}
+      <aside
+        className="hidden lg:flex flex-col fixed top-0 bottom-0 left-0 w-[250px] z-30 bg-white/85 backdrop-blur-md border-r border-slate-200/80 shadow-xs overflow-y-auto"
+        aria-label="Admin Navigation Sidebar"
+      >
+        {/* Brand Header */}
+        <div className="p-5 border-b border-slate-100 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-600 to-teal-600 flex items-center justify-center text-white shadow-md ring-4 ring-indigo-50 shrink-0">
+            <Shield size={20} className="text-white drop-shadow-sm" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="font-extrabold text-base text-slate-900 tracking-tight">Knowletive</span>
+              <span className="clay-pill bg-indigo-50 text-indigo-700 border-indigo-200/80 text-[9px] font-bold uppercase tracking-wider py-0.2 px-1.5">
+                Admin
+              </span>
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-lg text-slate-900 tracking-tight">Knowletive</span>
-                <span className="clay-pill bg-indigo-50 text-indigo-700 border-indigo-200/80 text-[10px] font-bold uppercase tracking-wider py-0.5 px-2">
-                  Admin Console
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 font-medium">Enterprise Time & Attendance Hub</p>
+            <p className="text-[11px] text-slate-400 font-medium truncate">Time & Attendance Hub</p>
+          </div>
+        </div>
+
+        {/* Navigation Items (Stacked Vertically) */}
+        <nav className="p-3.5 space-y-1.5 flex-1" aria-label="Admin Navigation Tabs">
+          <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Workspace Modules
+          </div>
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setActiveTab(item.id)}
+                className={`w-full px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-3 transition text-left focus:outline-hidden focus:ring-2 focus:ring-indigo-500/50 ${
+                  isActive
+                    ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-sm border-transparent'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border-transparent'
+                }`}
+              >
+                <Icon size={17} className={`shrink-0 ${isActive ? 'text-white' : 'text-slate-500'}`} />
+                <span className="truncate">{item.label}</span>
+                {item.badge && item.badge > 0 ? (
+                  <span
+                    className={`ml-auto px-1.5 py-0.5 rounded-full text-[10px] font-black shrink-0 ${
+                      isActive ? 'bg-white text-indigo-700' : 'bg-amber-500 text-white'
+                    }`}
+                  >
+                    {item.badge}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Sidebar Footer */}
+        <div className="p-3.5 border-t border-slate-100/80 bg-slate-50/50 space-y-2">
+          {/* User Profile Info */}
+          <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white border border-slate-200/60 shadow-2xs">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-teal-500 text-white font-bold text-xs flex items-center justify-center shrink-0">
+              {currentUser?.name ? currentUser.name.charAt(0).toUpperCase() : 'A'}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold text-slate-900 truncate">{currentUser.name || 'Admin'}</p>
+              <p className="text-[10px] text-slate-400 truncate font-mono">{currentUser.email || 'admin@knowletive.com'}</p>
             </div>
           </div>
 
-          {/* Quick Actions & Profile */}
-          <div className="flex items-center gap-2.5 sm:gap-3.5">
-            {/* User Profile Chip */}
-            <div className="hidden sm:flex items-center gap-2.5 px-3.5 py-1.5 rounded-2xl clay-card-flat">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-teal-500 text-white font-bold text-xs flex items-center justify-center shadow-xs">
-                {currentUser?.name ? currentUser.name.charAt(0).toUpperCase() : 'A'}
-              </div>
-              <div className="text-left">
-                <p className="text-xs font-bold text-slate-900 leading-tight">{currentUser.name || 'Admin'}</p>
-                <p className="text-[11px] text-slate-500 leading-tight font-mono">{currentUser.email || 'admin@knowletive.com'}</p>
-              </div>
-            </div>
-
-            {/* Notifications Dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => {
-                  setShowNotifDropdown(!showNotifDropdown);
-                  if (unreadNotifCount > 0) handleMarkNotificationsRead();
-                }}
-                className="relative p-2.5 rounded-2xl clay-card-flat hover:text-slate-900 transition"
-                title="Admin Notifications"
-                aria-label="Admin Notifications"
-              >
-                <Bell size={18} />
-                {unreadNotifCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-600 text-white text-[10px] font-black flex items-center justify-center ring-2 ring-white animate-pulse">
-                    {unreadNotifCount}
-                  </span>
-                )}
-              </button>
-
-              {showNotifDropdown && (
-                <div className="absolute right-0 mt-3 w-80 sm:w-96 clay-card shadow-2xl p-4 z-50 text-xs animate-in fade-in slide-in-from-top-2">
-                  <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-slate-100">
-                    <span className="font-bold text-slate-900 flex items-center gap-1.5 text-sm">
-                      <Bell size={15} className="text-indigo-600" />
-                      Notifications
-                    </span>
-                    {notificationsList.length > 0 && (
-                      <button
-                        onClick={handleMarkNotificationsRead}
-                        className="text-[11px] text-indigo-600 hover:underline font-bold"
-                      >
-                        Mark all read
-                      </button>
-                    )}
-                  </div>
-                  <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
-                    {notificationsList.length === 0 ? (
-                      <p className="text-slate-400 py-6 text-center italic">No new notifications</p>
-                    ) : (
-                      notificationsList.map((n) => (
-                        <div
-                          key={n.id}
-                          className={`p-3 rounded-xl border transition ${
-                            n.is_read
-                              ? 'bg-slate-50/70 border-slate-200/60 text-slate-600'
-                              : 'bg-indigo-50/70 border-indigo-200 text-slate-900 shadow-2xs'
-                          }`}
-                        >
-                          <p className="font-bold text-slate-900 text-xs">{n.title}</p>
-                          <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">{n.message}</p>
-                          <p className="text-[10px] text-slate-400 mt-1.5 font-mono">{n.created_at?.slice(0, 16).replace('T', ' ')}</p>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Timesheet Quick Link */}
+          <div className="flex items-center gap-2 pt-0.5">
             <button
               onClick={() => navigate('/timesheet')}
-              className="clay-btn clay-btn-secondary text-xs flex items-center gap-1.5 text-teal-800"
+              className="clay-btn clay-btn-secondary text-xs flex-1 flex items-center justify-center gap-1.5 py-2 text-teal-800"
+              title="Open Monthly Timesheet"
             >
-              <Calendar size={15} className="text-teal-600" />
-              <span className="hidden md:inline">Timesheets</span>
+              <Calendar size={14} className="text-teal-600" />
+              <span>Timesheets</span>
             </button>
 
-            {/* Logout */}
             <button
               onClick={handleLogout}
-              className="clay-btn text-xs flex items-center gap-1.5 text-rose-700 hover:text-rose-900"
+              className="clay-btn text-xs p-2 text-rose-700 hover:text-rose-900 hover:bg-rose-50 rounded-xl"
               title="Sign Out"
+              aria-label="Sign Out"
             >
               <LogOut size={15} />
-              <span className="hidden sm:inline">Sign Out</span>
             </button>
           </div>
         </div>
-      </header>
+      </aside>
 
-      {/* Main Body */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6 relative z-10">
+      {/* 2. MOBILE / TABLET COLLAPSIBLE SIDEBAR DRAWER (Slide-over drawer with backdrop & close button) */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden animate-in fade-in duration-200" role="dialog" aria-modal="true">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity"
+            onClick={() => setSidebarOpen(false)}
+            aria-hidden="true"
+          />
+
+          {/* Drawer Panel */}
+          <aside
+            className="fixed top-0 bottom-0 left-0 w-[270px] max-w-[85vw] bg-white z-50 shadow-2xl flex flex-col p-4 overflow-y-auto animate-in slide-in-from-left duration-200"
+            aria-label="Mobile Navigation Menu"
+          >
+            {/* Header with Close */}
+            <div className="flex items-center justify-between pb-3.5 mb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 to-teal-600 flex items-center justify-center text-white shadow-xs">
+                  <Shield size={18} />
+                </div>
+                <div>
+                  <span className="font-extrabold text-sm text-slate-900 block leading-tight">Knowletive</span>
+                  <span className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider">Admin Console</span>
+                </div>
+              </div>
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition focus:outline-hidden focus:ring-2 focus:ring-indigo-500/50"
+                aria-label="Close navigation menu"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Navigation Items */}
+            <nav className="space-y-1.5 flex-1 py-2" aria-label="Mobile Navigation Tabs">
+              <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Workspace Modules
+              </div>
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => {
+                      setActiveTab(item.id);
+                      setSidebarOpen(false);
+                    }}
+                    className={`w-full px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-3 transition text-left focus:outline-hidden focus:ring-2 focus:ring-indigo-500/50 ${
+                      isActive
+                        ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    <Icon size={17} className={`shrink-0 ${isActive ? 'text-white' : 'text-slate-500'}`} />
+                    <span className="truncate">{item.label}</span>
+                    {item.badge && item.badge > 0 ? (
+                      <span
+                        className={`ml-auto px-1.5 py-0.5 rounded-full text-[10px] font-black shrink-0 ${
+                          isActive ? 'bg-white text-indigo-700' : 'bg-amber-500 text-white'
+                        }`}
+                      >
+                        {item.badge}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* Mobile Drawer Footer */}
+            <div className="pt-3 border-t border-slate-100 space-y-2">
+              <button
+                onClick={() => {
+                  navigate('/timesheet');
+                  setSidebarOpen(false);
+                }}
+                className="clay-btn clay-btn-secondary text-xs w-full flex items-center justify-center gap-2 py-2 text-teal-800"
+              >
+                <Calendar size={15} className="text-teal-600" />
+                <span>Monthly Timesheets</span>
+              </button>
+              <button
+                onClick={handleLogout}
+                className="clay-btn text-xs w-full flex items-center justify-center gap-2 py-2 text-rose-700 hover:bg-rose-50"
+              >
+                <LogOut size={15} />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {/* 3. MAIN CONTENT CONTAINER (Adjusted left offset lg:pl-[250px] to prevent overlap or horizontal scroll) */}
+      <div className="lg:pl-[250px] flex-1 flex flex-col min-w-0 transition-all duration-200">
+        {/* Top Header Bar */}
+        <header className="glass-nav sticky top-0 z-20 px-4 sm:px-6 lg:px-8 py-3.5 transition-all">
+          <div className="flex items-center justify-between relative z-10">
+            {/* Left: Mobile Hamburger & Current Page Breadcrumb */}
+            <div className="flex items-center gap-3 min-w-0">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="lg:hidden p-2 rounded-xl clay-card-flat text-slate-700 hover:text-slate-900 transition flex items-center gap-1.5 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/50 shrink-0"
+                aria-label="Open navigation menu"
+              >
+                <Menu size={20} />
+              </button>
+
+              <div className="min-w-0 flex items-center gap-2">
+                <div className="lg:hidden w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 to-teal-600 flex items-center justify-center text-white shadow-xs shrink-0">
+                  <Shield size={16} />
+                </div>
+                <div className="truncate">
+                  <span className="hidden sm:inline text-xs font-semibold text-slate-400">Admin Console / </span>
+                  <span className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">
+                    {navItems.find((n) => n.id === activeTab)?.label || 'Dashboard'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Quick Actions, Notifications, Timesheets, Profile */}
+            <div className="flex items-center gap-2.5 sm:gap-3.5 shrink-0">
+              {/* User Profile Chip (Desktop) */}
+              <div className="hidden xl:flex items-center gap-2.5 px-3.5 py-1.5 rounded-2xl clay-card-flat">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-teal-500 text-white font-bold text-xs flex items-center justify-center shadow-xs">
+                  {currentUser?.name ? currentUser.name.charAt(0).toUpperCase() : 'A'}
+                </div>
+                <div className="text-left">
+                  <p className="text-xs font-bold text-slate-900 leading-tight">{currentUser.name || 'Admin'}</p>
+                  <p className="text-[11px] text-slate-500 leading-tight font-mono">{currentUser.email || 'admin@knowletive.com'}</p>
+                </div>
+              </div>
+
+              {/* Notifications Dropdown */}
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    setShowNotifDropdown(!showNotifDropdown);
+                    if (unreadNotifCount > 0) handleMarkNotificationsRead();
+                  }}
+                  className="relative p-2.5 rounded-2xl clay-card-flat hover:text-slate-900 transition focus:outline-hidden focus:ring-2 focus:ring-indigo-500/50"
+                  title="Admin Notifications"
+                  aria-label="Admin Notifications"
+                >
+                  <Bell size={18} />
+                  {unreadNotifCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-600 text-white text-[10px] font-black flex items-center justify-center ring-2 ring-white animate-pulse">
+                      {unreadNotifCount}
+                    </span>
+                  )}
+                </button>
+
+                {showNotifDropdown && (
+                  <div className="absolute right-0 mt-3 w-80 sm:w-96 clay-card shadow-2xl p-4 z-50 text-xs animate-in fade-in slide-in-from-top-2">
+                    <div className="flex items-center justify-between pb-2.5 mb-2.5 border-b border-slate-100">
+                      <span className="font-bold text-slate-900 flex items-center gap-1.5 text-sm">
+                        <Bell size={15} className="text-indigo-600" />
+                        Notifications
+                      </span>
+                      {notificationsList.length > 0 && (
+                        <button
+                          onClick={handleMarkNotificationsRead}
+                          className="text-[11px] text-indigo-600 hover:underline font-bold"
+                        >
+                          Mark all read
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+                      {notificationsList.length === 0 ? (
+                        <p className="text-slate-400 py-6 text-center italic">No new notifications</p>
+                      ) : (
+                        notificationsList.map((n) => (
+                          <div
+                            key={n.id}
+                            className={`p-3 rounded-xl border transition ${
+                              n.is_read
+                                ? 'bg-slate-50/70 border-slate-200/60 text-slate-600'
+                                : 'bg-indigo-50/70 border-indigo-200 text-slate-900 shadow-2xs'
+                            }`}
+                          >
+                            <p className="font-bold text-slate-900 text-xs">{n.title}</p>
+                            <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">{n.message}</p>
+                            <p className="text-[10px] text-slate-400 mt-1.5 font-mono">{n.created_at?.slice(0, 16).replace('T', ' ')}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Timesheet Quick Link */}
+              <button
+                onClick={() => navigate('/timesheet')}
+                className="hidden sm:flex clay-btn clay-btn-secondary text-xs items-center gap-1.5 text-teal-800"
+              >
+                <Calendar size={15} className="text-teal-600" />
+                <span>Timesheets</span>
+              </button>
+
+              {/* Logout */}
+              <button
+                onClick={handleLogout}
+                className="clay-btn text-xs flex items-center gap-1.5 text-rose-700 hover:text-rose-900"
+                title="Sign Out"
+              >
+                <LogOut size={15} />
+                <span className="hidden sm:inline">Sign Out</span>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Main Body */}
+        <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6 relative z-10">
         {/* Copy Feedback Toast */}
         {copyFeedback && (
           <div className="p-3.5 clay-card bg-emerald-50/90 border-emerald-200 flex items-center gap-2.5 text-emerald-900 text-xs shadow-xs animate-in fade-in slide-in-from-top-2">
@@ -689,100 +959,6 @@ export default function Admin() {
           </div>
         </div>
 
-        {/* Clean Segmented Navigation Tabs */}
-        <div className="clay-card-flat p-2 rounded-2xl">
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-            <button
-              onClick={() => setActiveTab('attendance')}
-              className={`clay-pill px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
-                activeTab === 'attendance'
-                  ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-sm border-transparent'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border-transparent'
-              }`}
-            >
-              <Clock size={16} />
-              <span>Live Attendance</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('analytics')}
-              className={`clay-pill px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
-                activeTab === 'analytics'
-                  ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-sm border-transparent'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border-transparent'
-              }`}
-            >
-              <TrendingUp size={16} />
-              <span>Analytics Dashboard</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('tasks')}
-              className={`clay-pill px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
-                activeTab === 'tasks'
-                  ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-sm border-transparent'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border-transparent'
-              }`}
-            >
-              <FolderKanban size={16} />
-              <span>Daily Task Reports</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('reports')}
-              className={`clay-pill px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
-                activeTab === 'reports'
-                  ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-sm border-transparent'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border-transparent'
-              }`}
-            >
-              <FileSpreadsheet size={16} />
-              <span>Reports & Exports</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('users')}
-              className={`clay-pill px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
-                activeTab === 'users'
-                  ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-sm border-transparent'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border-transparent'
-              }`}
-            >
-              <Users size={16} />
-              <span>User Management</span>
-              {pendingUsers.length > 0 && (
-                <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-black">
-                  {pendingUsers.length}
-                </span>
-              )}
-            </button>
-
-            <button
-              onClick={() => setActiveTab('invitations')}
-              className={`clay-pill px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
-                activeTab === 'invitations'
-                  ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-sm border-transparent'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border-transparent'
-              }`}
-            >
-              <KeyRound size={16} />
-              <span>Invitations</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('settings')}
-              className={`clay-pill px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center gap-2 transition shrink-0 ${
-                activeTab === 'settings'
-                  ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-sm border-transparent'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border-transparent'
-              }`}
-            >
-              <SettingsIcon size={16} />
-              <span>Schedule Settings</span>
-            </button>
-          </div>
-        </div>
-
         {/* TAB 1: LIVE ATTENDANCE (EMPLOYEES ONLY) */}
         {activeTab === 'attendance' && (
           <div className="clay-card p-5 sm:p-7 space-y-6">
@@ -812,23 +988,23 @@ export default function Admin() {
             </div>
 
             {/* Attendance Filter Strip */}
-            <div className="flex flex-col sm:flex-row gap-3 pt-1 pb-1">
-              <div className="relative flex-1">
-                <Search size={15} className="absolute left-3.5 top-3 text-slate-400" />
+            <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 pt-1 pb-1">
+              <div className="relative flex-1 min-w-[240px]">
+                <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                 <input
                   type="text"
                   placeholder="Search by name, email, or employee ID..."
                   value={attendanceSearch}
                   onChange={(e) => setAttendanceSearch(e.target.value)}
-                  className="clay-input w-full pl-9 text-xs"
+                  className="clay-input has-icon-left w-full pl-11 pr-3.5 text-sm min-h-[44px]"
                 />
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2.5 flex-wrap">
                 <select
                   value={attendanceDeptFilter}
                   onChange={(e) => setAttendanceDeptFilter(e.target.value)}
-                  className="clay-input text-xs"
+                  className="clay-input text-sm w-full sm:w-auto min-w-[160px]"
                 >
                   <option value="">All Departments</option>
                   {departmentOptions.map(dept => (
@@ -839,7 +1015,7 @@ export default function Admin() {
                 <select
                   value={attendanceStatusFilter}
                   onChange={(e) => setAttendanceStatusFilter(e.target.value)}
-                  className="clay-input text-xs"
+                  className="clay-input text-sm w-full sm:w-auto min-w-[150px]"
                 >
                   <option value="ALL">All Statuses</option>
                   <option value="WORKING">Working</option>
@@ -855,10 +1031,10 @@ export default function Admin() {
                       setAttendanceDeptFilter('');
                       setAttendanceStatusFilter('ALL');
                     }}
-                    className="clay-btn p-2 text-slate-400 hover:text-slate-700"
+                    className="clay-btn clay-btn-icon text-slate-400 hover:text-slate-700"
                     title="Clear filters"
                   >
-                    <X size={15} />
+                    <X size={16} />
                   </button>
                 )}
               </div>
@@ -880,7 +1056,15 @@ export default function Admin() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredAttendanceUsers.map((u: any) => (
+                  {loading && (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-slate-500">
+                        <RefreshCw size={24} className="mx-auto mb-2 text-indigo-600 animate-spin" />
+                        <p className="font-semibold text-xs text-slate-700">Loading live attendance records...</p>
+                      </td>
+                    </tr>
+                  )}
+                  {!loading && filteredAttendanceUsers.map((u: any) => (
                     <tr key={u.id} className="hover:bg-indigo-50/20 transition text-xs">
                       <td className="py-3.5 px-4">
                         <span className="clay-pill font-mono text-xs font-bold text-indigo-700 bg-indigo-50/90 px-2 py-0.5 border-indigo-200/80">
@@ -932,7 +1116,7 @@ export default function Admin() {
                       </td>
                     </tr>
                   ))}
-                  {filteredAttendanceUsers.length === 0 && (
+                  {!loading && filteredAttendanceUsers.length === 0 && (
                     <tr>
                       <td colSpan={8} className="py-12 text-center text-slate-400">
                         <Users size={32} className="mx-auto mb-2 text-slate-300" />
@@ -947,9 +1131,54 @@ export default function Admin() {
           </div>
         )}
 
+        {/* TAB: PROJECT & TASK PROGRESS */}
+        {activeTab === 'projects' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            <AdminProjectProgress employees={employeeOnlyList} />
+          </div>
+        )}
+
         {/* TAB 2: DAILY TIME-WISE TASK REPORTS (EMPLOYEES ONLY) */}
         {activeTab === 'tasks' && (
           <div className="space-y-6">
+            {/* Sub-module View Switcher: Daily Summary vs. Hourly Task Report */}
+            <div className="flex items-center gap-2 border-b border-slate-200/80 pb-3 flex-wrap">
+              <button
+                onClick={() => setTaskModuleView('summary')}
+                className={`clay-pill px-4 py-2 text-xs font-bold flex items-center gap-2 transition ${
+                  taskModuleView === 'summary'
+                    ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
+                }`}
+              >
+                <FolderKanban size={15} />
+                <span>Daily Summary & Task Logs</span>
+              </button>
+
+              <button
+                onClick={() => setTaskModuleView('hourly')}
+                className={`clay-pill px-4 py-2 text-xs font-bold flex items-center gap-2 transition ${
+                  taskModuleView === 'hourly'
+                    ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
+                }`}
+              >
+                <Clock size={15} />
+                <span>Hourly Employee Task Report</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-700">
+                  New
+                </span>
+              </button>
+            </div>
+
+            {taskModuleView === 'hourly' ? (
+              <HourlyEmployeeTaskReport
+                employees={employeeOnlyList}
+                initialDate={taskReportDate}
+                initialEmpId={taskFilterEmpId}
+                initialProject={taskFilterProject}
+              />
+            ) : (
             <div className="clay-card p-5 sm:p-7 space-y-6">
               {/* Header with Title & Export Actions */}
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -958,7 +1187,15 @@ export default function Admin() {
                   <p className="text-xs text-slate-500 font-medium mt-0.5">Track recorded work sessions, project activities, and duration logs</p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => setTaskModuleView('hourly')}
+                    className="clay-btn clay-btn-secondary text-xs flex items-center gap-1.5"
+                    title="Switch to hourly interval breakdown"
+                  >
+                    <Clock size={14} className="text-indigo-600" />
+                    <span>Hourly Report →</span>
+                  </button>
                   <button
                     onClick={() => handleExportTasks('csv')}
                     className="clay-btn clay-btn-secondary text-xs flex items-center gap-1.5"
@@ -977,14 +1214,14 @@ export default function Admin() {
               </div>
 
               {/* Filters Bar: Date, Employee, Project */}
-              <div className="clay-inset-well p-4 rounded-2xl grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <div className="clay-inset-well p-4 rounded-2xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Date (IST)</label>
                   <input
                     type="date"
                     value={taskReportDate}
                     onChange={(e) => setTaskReportDate(e.target.value)}
-                    className="clay-input w-full text-xs font-mono"
+                    className="clay-input w-full text-sm font-mono"
                   />
                 </div>
 
@@ -993,7 +1230,7 @@ export default function Admin() {
                   <select
                     value={taskFilterEmpId}
                     onChange={(e) => setTaskFilterEmpId(e.target.value)}
-                    className="clay-input w-full text-xs"
+                    className="clay-input w-full text-sm"
                   >
                     <option value="">All Employees</option>
                     {employeeOnlyList.map((u) => (
@@ -1007,14 +1244,23 @@ export default function Admin() {
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">Filter Project</label>
                   <div className="relative">
+                    <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                     <input
                       type="text"
                       placeholder="e.g. Website Redesign"
                       value={taskFilterProject}
                       onChange={(e) => setTaskFilterProject(e.target.value)}
-                      className="clay-input w-full pl-8 text-xs"
+                      className="clay-input has-icons-both w-full pl-11 pr-10 text-sm min-h-[44px]"
                     />
-                    <Search size={14} className="absolute left-2.5 top-3 text-slate-400" />
+                    {taskFilterProject && (
+                      <button
+                        onClick={() => setTaskFilterProject('')}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600 p-1"
+                        title="Clear project filter"
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -1022,9 +1268,9 @@ export default function Admin() {
                   <button
                     onClick={() => loadTaskReport()}
                     disabled={loadingTaskReport}
-                    className="clay-btn clay-btn-secondary w-full py-2.5 text-xs flex items-center justify-center gap-2"
+                    className="clay-btn clay-btn-secondary w-full text-sm flex items-center justify-center gap-2 font-bold"
                   >
-                    <RefreshCw size={14} className={loadingTaskReport ? 'animate-spin' : ''} />
+                    <RefreshCw size={16} className={loadingTaskReport ? 'animate-spin' : ''} />
                     <span>{loadingTaskReport ? 'Loading...' : 'Refresh Report'}</span>
                   </button>
                 </div>
@@ -1039,11 +1285,14 @@ export default function Admin() {
                 onClearFilters={() => {
                   setTaskFilterEmpId('');
                   setTaskFilterProject('');
+                  setDailyTaskCardFilter(null);
                 }}
                 onSetToday={() => {
                   setTaskReportDate(getTodayIsoDate());
                 }}
                 isLoading={loadingTaskReport}
+                cardFilter={dailyTaskCardFilter}
+                onSelectCardFilter={setDailyTaskCardFilter}
               />
 
               {/* Detailed Tables & Aggregates (rendered when records exist) */}
@@ -1132,10 +1381,28 @@ export default function Admin() {
 
                   {/* Detailed Employee Task Log Table */}
                   <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                      <ListTodo size={15} className="text-indigo-600" />
-                      <span>Detailed Employee Task Log</span>
-                    </h4>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                        <ListTodo size={15} className="text-indigo-600" />
+                        <span>Detailed Employee Task Log</span>
+                      </h4>
+
+                      {dailyTaskCardFilter && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[11px] text-slate-600">
+                            Filtering by <strong className="text-indigo-700 capitalize">{dailyTaskCardFilter.replace('_', ' ')}</strong>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setDailyTaskCardFilter(null)}
+                            className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 underline"
+                          >
+                            Reset Filter
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="clay-card-flat overflow-hidden">
                       <table className="w-full text-left text-sm">
                         <thead>
@@ -1153,47 +1420,88 @@ export default function Admin() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {taskReportData.tasks?.map((t: any) => (
-                            <tr key={t.task_log_id} className="hover:bg-indigo-50/20 transition text-xs">
-                              <td className="py-3 px-3.5 text-slate-400 font-mono">{t.sr_no}</td>
-                              <td className="py-3 px-3.5 font-mono font-bold text-indigo-700">
-                                {t.employee_id || '-'}
-                              </td>
-                              <td className="py-3 px-3.5">
-                                <p className="font-bold text-slate-900">{t.employee_name}</p>
-                                <span className="text-[10px] text-slate-400">{t.department}</span>
-                              </td>
-                              <td className="py-3 px-3.5">
-                                <span className="clay-pill px-2 py-0.5 text-[11px] font-semibold bg-indigo-50/80 border-indigo-200/70 text-indigo-700">
-                                  {t.project_name}
-                                </span>
-                              </td>
-                              <td className="py-3 px-3.5 font-bold text-slate-900">{t.task_name}</td>
-                              <td className="py-3 px-3.5 text-slate-600 max-w-xs truncate" title={t.description}>
-                                {t.description || '-'}
-                              </td>
-                              <td className="py-3 px-3.5 font-mono text-slate-600 whitespace-nowrap">{t.start_time}</td>
-                              <td className="py-3 px-3.5 font-mono text-slate-600 whitespace-nowrap">
-                                {t.end_time === 'In progress' ? (
-                                  <span className="text-amber-700 font-bold italic">In Progress</span>
-                                ) : (
-                                  t.end_time
-                                )}
-                              </td>
-                              <td className="py-3 px-3.5 font-mono text-indigo-600 font-bold text-right whitespace-nowrap">
-                                {t.duration_formatted}
-                              </td>
-                              <td className="py-3 px-3.5 text-center whitespace-nowrap">
-                                <span className={`clay-pill px-2.5 py-0.5 text-[11px] font-bold ${
-                                  t.status === 'IN_PROGRESS'
-                                    ? 'bg-amber-50 text-amber-800 border-amber-200'
-                                    : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                }`}>
-                                  {t.status === 'IN_PROGRESS' ? 'In Progress' : 'Completed'}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
+                          {(() => {
+                            const tasksList = taskReportData.tasks || [];
+                            const filtered = dailyTaskCardFilter && dailyTaskCardFilter !== 'total'
+                              ? tasksList.filter((t: any) => {
+                                  if (dailyTaskCardFilter === 'pending') return Boolean(t.is_pending || t.status === 'NOT_STARTED');
+                                  if (dailyTaskCardFilter === 'just_started') return Boolean(t.is_just_started);
+                                  if (dailyTaskCardFilter === 'in_progress') return Boolean(t.is_in_progress || (t.status === 'IN_PROGRESS' || t.status === 'PAUSED'));
+                                  if (dailyTaskCardFilter === 'completed') return Boolean(t.is_completed || t.status === 'COMPLETED');
+                                  return true;
+                                })
+                              : tasksList;
+
+                            if (filtered.length === 0) {
+                              return (
+                                <tr>
+                                  <td colSpan={10} className="py-8 text-center text-slate-400">
+                                    <p className="text-xs font-semibold">No tasks match the active card filter "{dailyTaskCardFilter}".</p>
+                                    <button
+                                      type="button"
+                                      onClick={() => setDailyTaskCardFilter(null)}
+                                      className="mt-2 text-xs text-indigo-600 underline font-bold"
+                                    >
+                                      Show All Tasks
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            }
+
+                            return filtered.map((t: any, idx: number) => (
+                              <tr key={t.task_log_id || idx} className="hover:bg-indigo-50/20 transition text-xs">
+                                <td className="py-3 px-3.5 text-slate-400 font-mono">{idx + 1}</td>
+                                <td className="py-3 px-3.5 font-mono font-bold text-indigo-700">
+                                  {t.employee_id || '-'}
+                                </td>
+                                <td className="py-3 px-3.5">
+                                  <p className="font-bold text-slate-900">{t.employee_name}</p>
+                                  <span className="text-[10px] text-slate-400">{t.department}</span>
+                                </td>
+                                <td className="py-3 px-3.5">
+                                  <span className="clay-pill px-2 py-0.5 text-[11px] font-semibold bg-indigo-50/80 border-indigo-200/70 text-indigo-700">
+                                    {t.project_name}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-3.5">
+                                  <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                                    <span>{t.task_name}</span>
+                                    {t.is_just_started && (
+                                      <span className="clay-pill px-1.5 py-0.2 text-[9px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                                        Just Started
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="py-3 px-3.5 text-slate-600 max-w-xs truncate" title={t.description}>
+                                  {t.description || '-'}
+                                </td>
+                                <td className="py-3 px-3.5 font-mono text-slate-600 whitespace-nowrap">{t.start_time}</td>
+                                <td className="py-3 px-3.5 font-mono text-slate-600 whitespace-nowrap">
+                                  {t.end_time === 'In progress' ? (
+                                    <span className="text-amber-700 font-bold italic">In Progress</span>
+                                  ) : (
+                                    t.end_time
+                                  )}
+                                </td>
+                                <td className="py-3 px-3.5 font-mono text-indigo-600 font-bold text-right whitespace-nowrap">
+                                  {t.duration_formatted}
+                                </td>
+                                <td className="py-3 px-3.5 text-center whitespace-nowrap">
+                                  <span className={`clay-pill px-2.5 py-0.5 text-[11px] font-bold ${
+                                    t.status === 'NOT_STARTED'
+                                      ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                      : t.status === 'IN_PROGRESS'
+                                      ? 'bg-blue-50 text-blue-800 border-blue-200'
+                                      : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                  }`}>
+                                    {t.status === 'NOT_STARTED' ? 'Pending' : t.status === 'IN_PROGRESS' ? 'In Progress' : 'Completed'}
+                                  </span>
+                                </td>
+                              </tr>
+                            ));
+                          })()}
                         </tbody>
                       </table>
                     </div>
@@ -1201,6 +1509,7 @@ export default function Admin() {
                 </>
               )}
             </div>
+            )}
           </div>
         )}
 
@@ -1314,7 +1623,7 @@ export default function Admin() {
                         type="date"
                         value={startDate}
                         onChange={(e) => setStartDate(e.target.value)}
-                        className="clay-input w-full text-xs font-mono"
+                        className="clay-input w-full text-sm font-mono"
                       />
                     </div>
                     <div>
@@ -1323,7 +1632,7 @@ export default function Admin() {
                         type="date"
                         value={endDate}
                         onChange={(e) => setEndDate(e.target.value)}
-                        className="clay-input w-full text-xs font-mono"
+                        className="clay-input w-full text-sm font-mono"
                       />
                     </div>
                   </>
@@ -1334,7 +1643,7 @@ export default function Admin() {
                       <select
                         value={reportMonth}
                         onChange={(e) => setReportMonth(e.target.value)}
-                        className="clay-input w-full text-xs"
+                        className="clay-input w-full text-sm"
                       >
                         <option value="1">January</option>
                         <option value="2">February</option>
@@ -1356,7 +1665,7 @@ export default function Admin() {
                         type="number"
                         value={reportYear}
                         onChange={(e) => setReportYear(e.target.value)}
-                        className="clay-input w-full text-xs font-mono"
+                        className="clay-input w-full text-sm font-mono"
                       />
                     </div>
                   </>
@@ -1367,7 +1676,7 @@ export default function Admin() {
                   <select
                     value={filterEmpId}
                     onChange={(e) => setFilterEmpId(e.target.value)}
-                    className="clay-input w-full text-xs"
+                    className="clay-input w-full text-sm"
                   >
                     <option value="">All Employees</option>
                     {employeeOnlyList.map((u) => (
@@ -1383,7 +1692,7 @@ export default function Admin() {
                     placeholder="e.g. Engineering"
                     value={filterDept}
                     onChange={(e) => setFilterDept(e.target.value)}
-                    className="clay-input w-full text-xs"
+                    className="clay-input w-full text-sm"
                   />
                 </div>
 
@@ -1394,7 +1703,7 @@ export default function Admin() {
                     placeholder="Filter project..."
                     value={reportFilterProject}
                     onChange={(e) => setReportFilterProject(e.target.value)}
-                    className="clay-input w-full text-xs"
+                    className="clay-input w-full text-sm"
                   />
                 </div>
 
@@ -1405,7 +1714,7 @@ export default function Admin() {
                     placeholder="Filter task..."
                     value={reportFilterTask}
                     onChange={(e) => setReportFilterTask(e.target.value)}
-                    className="clay-input w-full text-xs"
+                    className="clay-input w-full text-sm"
                   />
                 </div>
               </div>
@@ -1431,11 +1740,51 @@ export default function Admin() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {reports.length === 0 ? (
+                  {loadingReports ? (
+                    <tr>
+                      <td colSpan={12} className="py-12 text-center text-slate-500">
+                        <RefreshCw size={24} className="mx-auto mb-2 text-indigo-600 animate-spin" />
+                        <p className="font-semibold text-xs text-slate-700">Loading attendance & task reports...</p>
+                      </td>
+                    </tr>
+                  ) : reportsError ? (
+                    <tr>
+                      <td colSpan={12} className="py-12 text-center text-rose-600">
+                        <AlertTriangle size={32} className="mx-auto mb-2 text-rose-500" />
+                        <p className="font-bold text-rose-800 text-sm">Failed to load attendance records</p>
+                        <p className="text-xs text-rose-600 mt-1">{reportsError}</p>
+                        <button
+                          type="button"
+                          onClick={() => loadReports()}
+                          className="mt-4 clay-btn clay-btn-primary text-xs px-3.5 py-1.5 font-bold"
+                        >
+                          Retry Request
+                        </button>
+                      </td>
+                    </tr>
+                  ) : reports.length === 0 ? (
                     <tr>
                       <td colSpan={12} className="py-12 text-center text-slate-400">
                         <FileSpreadsheet size={32} className="mx-auto mb-2 text-slate-300" />
-                        <p className="font-bold text-slate-700 text-sm">No report entries found for the selected period.</p>
+                        <p className="font-bold text-slate-700 text-sm">No attendance records found for the selected dates.</p>
+                        <p className="text-xs text-slate-400 mt-1">Try adjusting the date range or employee/project filters.</p>
+                        <div className="mt-4 flex items-center justify-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setStartDate('');
+                              setEndDate('');
+                              setFilterDept('');
+                              setFilterEmpId('');
+                              setReportFilterProject('');
+                              setReportFilterTask('');
+                              setReportDateMode('range');
+                            }}
+                            className="clay-btn clay-btn-secondary text-xs px-3.5 py-1.5 font-bold"
+                          >
+                            Reset Filters
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ) : (
@@ -1587,6 +1936,7 @@ export default function Admin() {
                     onClick={() => {
                       setEditUserData(null);
                       setUserFormData({ username: '', first_name: '', last_name: '', email: '', department: '', role: 'EMPLOYEE', password: '' });
+                      setShowUserPassword(false);
                       setShowAddUserModal(true);
                     }}
                     className="clay-btn clay-btn-primary text-xs flex items-center gap-2"
@@ -1599,14 +1949,23 @@ export default function Admin() {
 
               {/* User Search Bar */}
               <div className="relative">
-                <Search size={15} className="absolute left-3.5 top-3 text-slate-400" />
+                <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                 <input
                   type="text"
                   placeholder="Search users by name, email, department, or employee ID..."
                   value={userSearchQuery}
                   onChange={(e) => setUserSearchQuery(e.target.value)}
-                  className="clay-input w-full pl-9 text-xs"
+                  className="clay-input has-icons-both w-full pl-11 pr-10 text-sm min-h-[44px]"
                 />
+                {userSearchQuery && (
+                  <button
+                    onClick={() => setUserSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600 p-1 rounded-md"
+                    title="Clear search"
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
 
               <div className="clay-card-flat overflow-hidden">
@@ -1696,6 +2055,7 @@ export default function Admin() {
                                   role: u.role || 'EMPLOYEE',
                                   password: ''
                                 });
+                                setShowUserPassword(false);
                                 setShowAddUserModal(true);
                               }}
                               className="clay-btn p-1.5 text-slate-700 hover:text-indigo-600"
@@ -1719,6 +2079,15 @@ export default function Admin() {
                         </td>
                       </tr>
                     ))}
+                    {filteredUsersList.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="py-12 text-center text-slate-400">
+                          <Users size={32} className="mx-auto mb-2 text-slate-300" />
+                          <p className="font-bold text-slate-700 text-sm">No users match your search.</p>
+                          <p className="text-xs text-slate-400 mt-1">Try searching with a different term or clear the search query.</p>
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1959,6 +2328,7 @@ export default function Admin() {
           </div>
         )}
       </main>
+      </div>
 
       {/* ADD / EDIT USER MODAL */}
       {showAddUserModal && (
@@ -1969,7 +2339,10 @@ export default function Admin() {
                 {editUserData ? 'Edit User Details' : 'Add New User'}
               </h3>
               <button
-                onClick={() => setShowAddUserModal(false)}
+                onClick={() => {
+                  setShowAddUserModal(false);
+                  setShowUserPassword(false);
+                }}
                 className="clay-btn clay-btn-secondary p-1.5 text-slate-400 hover:text-slate-700"
               >
                 <X size={18} />
@@ -1998,7 +2371,7 @@ export default function Admin() {
                     value={userFormData.username || ''}
                     onChange={(e) => setUserFormData({ ...userFormData, username: e.target.value })}
                     required
-                    className="clay-input w-full text-xs"
+                    className="clay-input w-full text-sm"
                   />
                 </div>
               )}
@@ -2011,7 +2384,7 @@ export default function Admin() {
                     value={userFormData.first_name}
                     onChange={(e) => setUserFormData({ ...userFormData, first_name: e.target.value })}
                     required
-                    className="clay-input w-full text-xs"
+                    className="clay-input w-full text-sm"
                   />
                 </div>
                 <div>
@@ -2021,7 +2394,7 @@ export default function Admin() {
                     value={userFormData.last_name}
                     onChange={(e) => setUserFormData({ ...userFormData, last_name: e.target.value })}
                     required
-                    className="clay-input w-full text-xs"
+                    className="clay-input w-full text-sm"
                   />
                 </div>
               </div>
@@ -2034,7 +2407,7 @@ export default function Admin() {
                   value={userFormData.email}
                   onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
                   required
-                  className="clay-input w-full text-xs"
+                  className="clay-input w-full text-sm"
                 />
               </div>
 
@@ -2045,7 +2418,7 @@ export default function Admin() {
                   placeholder="e.g. Design, Engineering"
                   value={userFormData.department}
                   onChange={(e) => setUserFormData({ ...userFormData, department: e.target.value })}
-                  className="clay-input w-full text-xs"
+                  className="clay-input w-full text-sm"
                 />
               </div>
 
@@ -2055,31 +2428,51 @@ export default function Admin() {
                   <select
                     value={userFormData.role}
                     onChange={(e) => setUserFormData({ ...userFormData, role: e.target.value })}
-                    className="clay-input w-full text-xs"
+                    className="clay-input w-full text-sm"
                   >
                     <option value="EMPLOYEE">Employee</option>
                     <option value="ADMIN">Admin</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    {editUserData ? 'New Password (opt)' : 'Password'}
+                  <label htmlFor="user-form-password" className="block text-xs font-bold text-slate-700 mb-1">
+                    {editUserData ? 'New Password (optional)' : 'Password'}
                   </label>
-                  <input
-                    type="password"
-                    placeholder="••••••••"
-                    value={userFormData.password}
-                    onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
-                    required={!editUserData}
-                    className="clay-input w-full text-xs"
-                  />
+                  <div className="relative flex items-center">
+                    <input
+                      id="user-form-password"
+                      type={showUserPassword ? 'text' : 'password'}
+                      placeholder={editUserData ? 'Leave blank to keep current' : '••••••••'}
+                      value={userFormData.password}
+                      onChange={(e) => setUserFormData({ ...userFormData, password: e.target.value })}
+                      required={!editUserData}
+                      autoComplete="new-password"
+                      className="clay-input has-icon-right w-full text-sm pr-11 min-h-[44px]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowUserPassword(!showUserPassword)}
+                      aria-label={showUserPassword ? 'Hide password' : 'Show password'}
+                      title={showUserPassword ? 'Hide password' : 'Show password'}
+                      className="absolute right-0 pr-2.5 h-full flex items-center text-slate-400 hover:text-slate-600 focus:outline-none focus:text-indigo-600 transition-colors cursor-pointer"
+                    >
+                      {showUserPassword ? (
+                        <EyeOff size={15} className="shrink-0" aria-hidden="true" />
+                      ) : (
+                        <Eye size={15} className="shrink-0" aria-hidden="true" />
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200/60">
                 <button
                   type="button"
-                  onClick={() => setShowAddUserModal(false)}
+                  onClick={() => {
+                    setShowAddUserModal(false);
+                    setShowUserPassword(false);
+                  }}
                   className="clay-btn clay-btn-secondary px-4 py-2 text-xs font-bold"
                 >
                   Cancel
@@ -2122,7 +2515,7 @@ export default function Admin() {
                   value={correctionForm.event_id}
                   onChange={(e) => setCorrectionForm({ ...correctionForm, event_id: e.target.value })}
                   required
-                  className="clay-input w-full text-xs font-mono"
+                  className="clay-input w-full text-sm font-mono"
                 />
               </div>
 
@@ -2132,7 +2525,7 @@ export default function Admin() {
                   <select
                     value={correctionForm.new_event_type}
                     onChange={(e) => setCorrectionForm({ ...correctionForm, new_event_type: e.target.value })}
-                    className="clay-input w-full text-xs"
+                    className="clay-input w-full text-sm"
                   >
                     <option value="START_WORK">START_WORK</option>
                     <option value="START_BREAK">START_BREAK</option>
@@ -2147,7 +2540,7 @@ export default function Admin() {
                     type="datetime-local"
                     value={correctionForm.new_timestamp}
                     onChange={(e) => setCorrectionForm({ ...correctionForm, new_timestamp: e.target.value })}
-                    className="clay-input w-full text-xs"
+                    className="clay-input w-full text-sm"
                   />
                 </div>
               </div>
@@ -2162,7 +2555,7 @@ export default function Admin() {
                   onChange={(e) => setCorrectionForm({ ...correctionForm, reason: e.target.value })}
                   required
                   rows={3}
-                  className="clay-input w-full text-xs"
+                  className="clay-input w-full text-sm"
                 />
               </div>
 
@@ -2218,7 +2611,7 @@ export default function Admin() {
                   placeholder="employee@knowletive.com"
                   value={inviteFormData.recipient_email}
                   onChange={(e) => setInviteFormData({ ...inviteFormData, recipient_email: e.target.value })}
-                  className="clay-input w-full text-xs placeholder-slate-400"
+                  className="clay-input w-full text-sm placeholder-slate-400"
                 />
                 <p className="text-[11px] text-slate-500 mt-1">If specified, only this email address can redeem the code.</p>
               </div>
@@ -2231,7 +2624,7 @@ export default function Admin() {
                   <select
                     value={inviteFormData.days_valid}
                     onChange={(e) => setInviteFormData({ ...inviteFormData, days_valid: Number(e.target.value) })}
-                    className="clay-input w-full text-xs"
+                    className="clay-input w-full text-sm"
                   >
                     <option value={1}>1 Day</option>
                     <option value={3}>3 Days</option>
@@ -2251,7 +2644,7 @@ export default function Admin() {
                     placeholder="Auto-generate"
                     value={inviteFormData.code}
                     onChange={(e) => setInviteFormData({ ...inviteFormData, code: e.target.value.toUpperCase() })}
-                    className="clay-input w-full text-xs placeholder-slate-400 font-mono uppercase"
+                    className="clay-input w-full text-sm placeholder-slate-400 font-mono uppercase"
                   />
                 </div>
               </div>
@@ -2265,7 +2658,7 @@ export default function Admin() {
                   placeholder="e.g. For Q4 engineering hires"
                   value={inviteFormData.notes}
                   onChange={(e) => setInviteFormData({ ...inviteFormData, notes: e.target.value })}
-                  className="clay-input w-full text-xs placeholder-slate-400"
+                  className="clay-input w-full text-sm placeholder-slate-400"
                 />
               </div>
 

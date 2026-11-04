@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Clock, User, Lock, AlertCircle, ArrowRight, UserPlus, CheckCircle2 } from 'lucide-react';
+import { Clock, User, Lock, AlertCircle, ArrowRight, UserPlus, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import api from '../lib/api';
 
 export default function Signup() {
@@ -9,6 +9,8 @@ export default function Signup() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -109,9 +111,9 @@ export default function Signup() {
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                 Username <span className="text-rose-500">*</span>
               </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <User size={16} />
+              <div className="relative flex items-center">
+                <div className="absolute left-3.5 flex items-center pointer-events-none text-slate-400">
+                  <User size={18} />
                 </div>
                 <input
                   type="text"
@@ -120,7 +122,7 @@ export default function Signup() {
                   placeholder="e.g. john_doe"
                   required
                   autoComplete="username"
-                  className="clay-input w-full pl-10 pr-3.5 py-3 text-sm placeholder-slate-400 font-medium"
+                  className="clay-input has-icon-left w-full pl-11 pr-3.5 text-sm placeholder-slate-400 font-medium min-h-[44px]"
                 />
               </div>
               <p className="text-[11px] text-slate-500 mt-1 font-medium">Letters, numbers, underscores, and dots allowed</p>
@@ -131,19 +133,27 @@ export default function Signup() {
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                 Password <span className="text-rose-500">*</span>
               </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Lock size={16} />
+              <div className="relative flex items-center">
+                <div className="absolute left-3.5 flex items-center pointer-events-none text-slate-400">
+                  <Lock size={18} />
                 </div>
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="At least 6 characters"
                   required
                   autoComplete="new-password"
-                  className="clay-input w-full pl-10 pr-3.5 py-3 text-sm placeholder-slate-400 font-medium"
+                  className="clay-input has-icons-both w-full pl-11 pr-11 text-sm placeholder-slate-400 font-medium min-h-[44px]"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 flex items-center text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer p-0.5 transition-colors"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
 
@@ -152,18 +162,20 @@ export default function Signup() {
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                 Confirm Password <span className="text-rose-500">*</span>
               </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Lock size={16} />
+              <div className="relative flex items-center">
+                <div className="absolute left-3.5 flex items-center pointer-events-none text-slate-400">
+                  <Lock size={18} />
                 </div>
                 <input
-                  type="password"
+                  type={showConfirmPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Re-enter your password"
                   required
                   autoComplete="new-password"
-                  className={`clay-input w-full pl-10 pr-10 py-3 text-sm placeholder-slate-400 font-medium ${
+                  className={`clay-input has-icons-both w-full pl-11 ${
+                    confirmPassword.length > 0 && passwordsMatch ? 'pr-16' : 'pr-11'
+                  } text-sm placeholder-slate-400 font-medium min-h-[44px] ${
                     confirmPassword.length > 0
                       ? passwordsMatch
                         ? '!border-emerald-400 !bg-emerald-50/20'
@@ -171,11 +183,19 @@ export default function Signup() {
                       : ''
                   }`}
                 />
-                {confirmPassword.length > 0 && passwordsMatch && (
-                  <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-emerald-600">
-                    <CheckCircle2 size={16} />
-                  </div>
-                )}
+                <div className="absolute right-3.5 flex items-center gap-1.5">
+                  {confirmPassword.length > 0 && passwordsMatch && (
+                    <CheckCircle2 size={16} className="text-emerald-600 shrink-0 pointer-events-none" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer p-0.5 transition-colors"
+                    aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
               {confirmPassword.length > 0 && !passwordsMatch && (
                 <p className="text-xs text-rose-600 mt-1 font-medium">Passwords do not match.</p>
