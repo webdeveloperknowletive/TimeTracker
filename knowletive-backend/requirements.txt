@@ -1,0 +1,9 @@
+
+Django==6.1.2
+djangorestframework
+django-cors-headers
+dj-database-url
+psycopg[binary]
+openpyxl
+gunicorn
+whitenoise
