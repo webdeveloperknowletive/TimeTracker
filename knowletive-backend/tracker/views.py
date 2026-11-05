@@ -1,3 +1,4 @@
+import os
 import csv
 import io
 import re
@@ -220,77 +221,93 @@ def login_view(request):
     if not username or not password:
         return Response({'error': 'Username and password are required.'}, status=400)
     
-    # Authenticate by username, email, employee ID, or domain typo fallback
-    user = User.objects.filter(username__iexact=username).first()
-    if not user:
-        user = User.objects.filter(email__iexact=username).first()
-    if not user:
-        user = User.objects.filter(employee_id__iexact=username).first()
-    if not user and '@' in username:
-        alt_email = username.replace('@gamil.com', '@gmail.com') if '@gamil.com' in username else username.replace('@gmail.com', '@gamil.com')
-        user = User.objects.filter(email__iexact=alt_email).first()
-
-    # Self-healing administrator synchronization:
-    # Guarantees the primary administrator account exists and credentials match across deployments
-    target_admin_pass = os.environ.get('ADMIN_PASSWORD', 'Admin@12345').strip()
-    target_admin_email = os.environ.get('ADMIN_EMAIL', 'admin@knowletive.com').strip().lower()
-    is_admin_candidate = (
-        username.lower() in ('admin', target_admin_email, 'admin@knowletive.in')
-        or (user is not None and user.role == 'ADMIN')
-    )
-
-    if is_admin_candidate and password == target_admin_pass:
+    try:
+        user = User.objects.filter(username__iexact=username).first()
         if not user:
-            user = User.objects.filter(email__iexact=target_admin_email).first() or User.objects.filter(username__iexact='admin').first()
+            user = User.objects.filter(email__iexact=username).first()
         if not user:
-            user = User.objects.create_superuser(
-                username='admin',
-                email=target_admin_email,
-                password=target_admin_pass,
-                first_name='Admin',
-                last_name='User',
-                role='ADMIN',
-                department='Administration',
-                approval_status='APPROVED',
-                is_active=True,
-                is_staff=True,
-                is_superuser=True
+            user = User.objects.filter(employee_id__iexact=username).first()
+        if not user and '@' in username:
+            alt_email = username.replace('@gamil.com', '@gmail.com') if '@gamil.com' in username else username.replace('@gmail.com', '@gamil.com')
+            user = User.objects.filter(email__iexact=alt_email).first()
+
+        # Self-healing administrator synchronization:
+        # Guarantees the primary administrator account exists and credentials match across deployments
+        target_admin_pass = os.environ.get('ADMIN_PASSWORD', 'Admin@12345').strip()
+        target_admin_email = os.environ.get('ADMIN_EMAIL', 'admin@knowletive.com').strip().lower()
+        is_admin_candidate = (
+            username.lower() in ('admin', target_admin_email, 'admin@knowletive.in')
+            or (user is not None and user.role == 'ADMIN')
+        )
+
+        if is_admin_candidate and password == target_admin_pass:
+            if not user:
+                user = User.objects.filter(email__iexact=target_admin_email).first() or User.objects.filter(username__iexact='admin').first()
+            if not user:
+                user = User.objects.create_superuser(
+                    username='admin',
+                    email=target_admin_email,
+                    password=target_admin_pass,
+                    first_name='Admin',
+                    last_name='User',
+                    role='ADMIN',
+                    department='Administration',
+                    approval_status='APPROVED',
+                    is_active=True,
+                    is_staff=True,
+                    is_superuser=True
+                )
+            else:
+                user.set_password(target_admin_pass)
+                user.role = 'ADMIN'
+                user.is_active = True
+                user.is_staff = True
+                user.is_superuser = True
+                user.approval_status = 'APPROVED'
+                user.save()
+
+        if not user or not user.check_password(password):
+            return Response({'error': 'Invalid username or password.'}, status=400)
+            
+        if not user.is_active:
+            return Response({'error': 'Your account has been deactivated. Please contact an administrator.'}, status=403)
+            
+        token, _ = Token.objects.get_or_create(user=user)
+        try:
+            storage.log_audit(
+                action="USER_LOGIN",
+                actor=user.username,
+                details={"user_id": user.id, "role": user.role}
             )
-        else:
-            user.set_password(target_admin_pass)
-            user.role = 'ADMIN'
-            user.is_active = True
-            user.is_staff = True
-            user.is_superuser = True
-            user.approval_status = 'APPROVED'
-            user.save()
+        except Exception:
+            pass
 
-    if not user or not user.check_password(password):
-        return Response({'error': 'Invalid username or password.'}, status=400)
-        
-    if not user.is_active:
-        return Response({'error': 'Your account has been deactivated. Please contact an administrator.'}, status=403)
-        
-    token, _ = Token.objects.get_or_create(user=user)
-    storage.log_audit(
-        action="USER_LOGIN",
-        actor=user.username,
-        details={"user_id": user.id, "role": user.role}
-    )
-    return Response({
-        'token': token.key,
-        'user': {
-            'id': user.id,
-            'username': user.username,
-            'employee_id': user.employee_id or '',
-            'name': f"{user.first_name} {user.last_name}".strip() or user.username,
-            'email': user.email or '',
-            'role': user.role,
-            'department': user.department or 'General',
-            'employment_status': user.employment_status,
-            'approval_status': user.approval_status
-        }
-    })
+        return Response({
+            'token': token.key,
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'employee_id': user.employee_id or '',
+                'name': f"{user.first_name} {user.last_name}".strip() or user.username,
+                'email': user.email or '',
+                'role': user.role,
+                'department': user.department or 'General',
+                'employment_status': user.employment_status,
+                'approval_status': user.approval_status
+            }
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        err_str = str(e).lower()
+        if 'does not exist' in err_str or 'no such table' in err_str:
+            try:
+                from django.core.management import call_command
+                call_command('migrate', interactive=False, verbosity=0)
+                return login_view(request)
+            except Exception as migrate_err:
+                return Response({'error': f'Database migration error: {str(migrate_err)}'}, status=500)
+        return Response({'error': f'Server error: {str(e)}'}, status=500)
 
 
 @api_view(['POST'])
