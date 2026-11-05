@@ -72,6 +72,50 @@ document.addEventListener('DOMContentLoaded', async () => {
   const trackerView = document.getElementById('tracker-view')!;
   const adminView = document.getElementById('admin-view')!;
 
+  // Server Switcher
+  const serverLabel = document.getElementById('server-env-label');
+  const switchBtn = document.getElementById('switch-env-btn');
+
+  async function updateServerUI() {
+    const currentUrl = await getPopupApiUrl();
+    const isLocal = currentUrl.includes('localhost') || currentUrl.includes('127.0.0.1');
+    if (serverLabel) {
+      serverLabel.textContent = isLocal ? 'Localhost (8000)' : 'Production (Cloud)';
+      serverLabel.style.color = isLocal ? '#059669' : '#4f46e5';
+    }
+    if (switchBtn) {
+      switchBtn.textContent = isLocal ? 'Switch to Production' : 'Switch to Localhost';
+    }
+  }
+
+  if (switchBtn) {
+    switchBtn.addEventListener('click', async () => {
+      const currentUrl = await getPopupApiUrl();
+      const isLocal = currentUrl.includes('localhost') || currentUrl.includes('127.0.0.1');
+      if (isLocal) {
+        await chrome.storage.local.set({
+          api_url: POPUP_DEFAULT_API_URL,
+          web_url: POPUP_DEFAULT_WEB_URL
+        });
+      } else {
+        await chrome.storage.local.set({
+          api_url: 'http://localhost:8000/api',
+          web_url: 'http://localhost:5173'
+        });
+      }
+      await updateServerUI();
+      try {
+        const webBase = await getPopupWebUrl();
+        document.querySelectorAll<HTMLAnchorElement>('a[data-path]').forEach((link) => {
+          const path = link.getAttribute('data-path') || '';
+          link.href = `${webBase}${path}`;
+        });
+      } catch {}
+    });
+  }
+
+  await updateServerUI();
+
   // Auth elements
   const loginForm = document.getElementById('login-form') as HTMLFormElement;
   const loginError = document.getElementById('login-error')!;
