@@ -2,12 +2,11 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   FolderKanban, Clock, CheckCircle2, AlertTriangle, 
   ChevronDown, ChevronUp, Users, RefreshCw, Search, 
-  Briefcase, MessageSquare, History, Check, X,
-  Hourglass, Calendar, ChevronLeft, ChevronRight, RotateCcw,
-  Sparkles
+  Briefcase, MessageSquare, Check, X,
+  Calendar, ChevronLeft, ChevronRight, RotateCcw,
+  Sparkles, Info
 } from 'lucide-react';
 import api from '../lib/api';
-import { formatDigitalDuration } from '../utils/formatters';
 
 export interface Employee {
   id: number;
@@ -15,6 +14,10 @@ export interface Employee {
   employee_id: string;
   email: string;
   department: string;
+  employee_project_status?: string;
+  employee_project_status_display?: string;
+  employee_project_status_updated_at?: string | null;
+  employee_project_status_updated_at_display?: string | null;
 }
 
 export interface ProgressNote {
@@ -69,6 +72,7 @@ export interface TaskItem {
   created_at: string;
   created_at_display?: string;
   updated_at: string;
+  last_activity_display?: string;
 }
 
 export interface ProjectSummary {
@@ -109,6 +113,9 @@ export interface ProjectSummary {
     completion_percentage: number | null;
     completion_label: string;
   } | null;
+  period_intervals?: any[];
+  primary_interval?: string;
+  extra_intervals_count?: number;
 }
 
 export interface SummaryTotals {
@@ -143,6 +150,23 @@ const MONTH_NAMES_SHORT = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
 ];
 
+/**
+ * Format total seconds to readable compact duration (e.g. "1h 25m", "45m", "18s", "0m")
+ */
+export function formatCompactDuration(totalSeconds?: number | null): string {
+  if (typeof totalSeconds !== 'number' || isNaN(totalSeconds) || totalSeconds <= 0) return '0m';
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m`;
+  }
+  return `${seconds}s`;
+}
+
 function getTodayIstIsoDate(): string {
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
@@ -176,6 +200,25 @@ function formatUnambiguousDate(isoStr?: string | null): string {
   return isoStr;
 }
 
+function formatDateTimeIst(dateStr?: string | null): string {
+  if (!dateStr) return '--';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    }).format(d);
+  } catch {
+    return dateStr;
+  }
+}
+
 function shiftDateDays(dateStr: string, days: number): string {
   const [y, m, d] = dateStr.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
@@ -207,8 +250,93 @@ function getMondaySundayOfWeek(dateStr: string): { monday: string; sunday: strin
 
   const monday = formatIso(monDt);
   const sunday = formatIso(sunDt);
-  const label = `${formatUnambiguousDate(monday)} – ${formatUnambiguousDate(sunday)} (Mon–Sun)`;
+  const label = `${formatUnambiguousDate(monday)} – ${formatUnambiguousDate(sunday)}`;
   return { monday, sunday, label };
+}
+
+/**
+ * Filter out redundant descriptions such as "Project for [project name]"
+ */
+function getCleanProjectDescription(description?: string | null, projectName?: string): string | null {
+  if (!description || !description.trim()) return null;
+  const trimmedDesc = description.trim();
+  if (projectName) {
+    const trimmedName = projectName.trim().toLowerCase();
+    const lowerDesc = trimmedDesc.toLowerCase();
+    if (
+      lowerDesc === `project for ${trimmedName}` ||
+      lowerDesc === `project for: ${trimmedName}` ||
+      lowerDesc === trimmedName
+    ) {
+      return null;
+    }
+  }
+  return trimmedDesc;
+}
+
+export interface ReportedStatusResult {
+  status: 'NOT_REPORTED' | 'JUST_STARTED' | 'IN_PROGRESS' | 'COMPLETED' | 'MIXED';
+  label: string;
+  colorClass: string;
+  explanation?: string;
+  counts?: Record<string, number>;
+}
+
+/**
+ * Derives the employee-reported project status, handling "Mixed" when employees report differing statuses.
+ */
+export function getProjectReportedStatus(assignedEmployees?: Employee[]): ReportedStatusResult {
+  if (!assignedEmployees || assignedEmployees.length === 0) {
+    return {
+      status: 'NOT_REPORTED',
+      label: 'Unspecified',
+      colorClass: 'bg-slate-100 text-slate-600 border-slate-200'
+    };
+  }
+
+  const statuses = assignedEmployees.map((e) => e.employee_project_status || 'JUST_STARTED');
+  const distinctStatuses = Array.from(new Set(statuses));
+
+  if (distinctStatuses.length === 1) {
+    const s = distinctStatuses[0];
+    if (s === 'COMPLETED') {
+      return {
+        status: 'COMPLETED',
+        label: 'Completed',
+        colorClass: 'bg-emerald-50 text-emerald-700 border-emerald-200'
+      };
+    }
+    if (s === 'IN_PROGRESS') {
+      return {
+        status: 'IN_PROGRESS',
+        label: 'In Progress',
+        colorClass: 'bg-blue-50 text-blue-700 border-blue-200'
+      };
+    }
+    return {
+      status: 'JUST_STARTED',
+      label: 'Just Started',
+      colorClass: 'bg-sky-50 text-sky-700 border-sky-200'
+    };
+  }
+
+  // Multiple differing statuses -> Mixed
+  const counts: Record<string, number> = {};
+  statuses.forEach((s) => {
+    counts[s] = (counts[s] || 0) + 1;
+  });
+  const parts: string[] = [];
+  if (counts['IN_PROGRESS']) parts.push(`${counts['IN_PROGRESS']} In Progress`);
+  if (counts['COMPLETED']) parts.push(`${counts['COMPLETED']} Completed`);
+  if (counts['JUST_STARTED']) parts.push(`${counts['JUST_STARTED']} Just Started`);
+
+  return {
+    status: 'MIXED',
+    label: 'Mixed',
+    colorClass: 'bg-amber-50 text-amber-800 border-amber-300',
+    explanation: `Employees report differing statuses: ${parts.join(', ')}`,
+    counts
+  };
 }
 
 interface AdminProjectProgressProps {
@@ -243,13 +371,16 @@ export default function AdminProjectProgress({ employees: propEmployees }: Admin
   // Fallback employee list if not passed via props
   const [fetchedEmployees, setFetchedEmployees] = useState<Employee[]>([]);
 
+  // Expandable "More Summary" section
+  const [showMoreSummary, setShowMoreSummary] = useState<boolean>(false);
+
   // Pagination state (10 projects per page)
   const [currentPage, setCurrentPage] = useState<number>(1);
   const pageSize = 10;
 
-  // Expanded project state & client detail cache
-  const [expandedProjectId, setExpandedProjectId] = useState<string | null>(null);
-  const [expandedProjectDetails, setExpandedProjectDetails] = useState<{
+  // Drawer Project Details State
+  const [drawerProjectId, setDrawerProjectId] = useState<string | null>(null);
+  const [drawerDetails, setDrawerDetails] = useState<{
     project: ProjectSummary;
     tasks: TaskItem[];
     work_sessions: any[];
@@ -258,12 +389,16 @@ export default function AdminProjectProgress({ employees: propEmployees }: Admin
     audit_records: any[];
     period_info?: any;
   } | null>(null);
-  const [loadingDetails, setLoadingDetails] = useState<boolean>(false);
-  const [detailTab, setDetailTab] = useState<'tasks' | 'sessions' | 'notes' | 'contributions' | 'audit'>('tasks');
+  const [loadingDrawer, setLoadingDrawer] = useState<boolean>(false);
+  const [drawerError, setDrawerError] = useState<string>('');
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set());
+  const [showAdditionalInfo, setShowAdditionalInfo] = useState<boolean>(false);
+  const [drawerTab, setDrawerTab] = useState<'tasks' | 'sessions' | 'notes' | 'contributions'>('tasks');
 
   const projectReqSeqRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const detailsCacheRef = useRef<Record<string, any>>({});
+  const lastFocusedElementRef = useRef<HTMLElement | null>(null);
 
   // Fetch full employee directory once if propEmployees is not provided
   useEffect(() => {
@@ -282,9 +417,7 @@ export default function AdminProjectProgress({ employees: propEmployees }: Admin
           }));
         setFetchedEmployees(emps);
       })
-      .catch(() => {
-        // Quiet fallback
-      });
+      .catch(() => {});
   }, [propEmployees]);
 
   // Combine available employees from props, fetched list, and projects
@@ -365,7 +498,7 @@ export default function AdminProjectProgress({ employees: propEmployees }: Admin
       }
     } catch (err: any) {
       if (err?.name === 'CanceledError' || err?.code === 'ERR_CANCELED') {
-        return; // Superseded request, ignore quietly
+        return;
       }
       if (seq === projectReqSeqRef.current) {
         setHasLoadedSuccessfully(false);
@@ -394,23 +527,18 @@ export default function AdminProjectProgress({ employees: propEmployees }: Admin
     return projects.slice(start, start + pageSize);
   }, [projects, currentPage, pageSize]);
 
-  // Toggle expand project card with period-aware caching
-  const handleToggleExpand = async (projectId: string) => {
-    if (expandedProjectId === projectId) {
-      setExpandedProjectId(null);
-      setExpandedProjectDetails(null);
-      return;
-    }
-
-    setExpandedProjectId(projectId);
+  // Fetch project details for the drawer
+  const fetchDrawerDetails = async (projectId: string) => {
+    setLoadingDrawer(true);
+    setDrawerError('');
 
     const cacheKey = `${projectId}_${viewPeriod}_${selectedDate}_${selectedWeekDate}_${selectedMonth}_${selectedYear}_${customStartDate}_${customEndDate}_${filterEmployee}`;
     if (detailsCacheRef.current[cacheKey]) {
-      setExpandedProjectDetails(detailsCacheRef.current[cacheKey]);
+      setDrawerDetails(detailsCacheRef.current[cacheKey]);
+      setLoadingDrawer(false);
       return;
     }
 
-    setLoadingDetails(true);
     try {
       const params = new URLSearchParams();
       params.set('period', viewPeriod.toLowerCase());
@@ -427,12 +555,60 @@ export default function AdminProjectProgress({ employees: propEmployees }: Admin
 
       const res = await api.get(`/projects/${projectId}/?${params.toString()}`);
       detailsCacheRef.current[cacheKey] = res.data;
-      setExpandedProjectDetails(res.data);
+      setDrawerDetails(res.data);
     } catch (err: any) {
-      setErrorMsg(err.response?.data?.error || 'Failed to load project details.');
+      setDrawerError(err.response?.data?.error || 'Failed to load project details. Please check your connection and retry.');
     } finally {
-      setLoadingDetails(false);
+      setLoadingDrawer(false);
     }
+  };
+
+  // Open details drawer
+  const handleOpenDrawer = (projectId: string, initialTab: 'tasks' | 'sessions' | 'notes' | 'contributions' = 'tasks') => {
+    lastFocusedElementRef.current = document.activeElement as HTMLElement;
+    setDrawerProjectId(projectId);
+    setDrawerDetails(null); // Prevent previous project data from flashing
+    setDrawerError('');
+    setExpandedTaskIds(new Set());
+    setShowAdditionalInfo(false);
+    setDrawerTab(initialTab);
+    fetchDrawerDetails(projectId);
+  };
+
+  // Close details drawer & restore focus
+  const handleCloseDrawer = () => {
+    setDrawerProjectId(null);
+    setDrawerDetails(null);
+    setDrawerError('');
+    if (lastFocusedElementRef.current) {
+      try {
+        lastFocusedElementRef.current.focus();
+      } catch {}
+    }
+  };
+
+  // Escape key listener to close drawer
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && drawerProjectId) {
+        handleCloseDrawer();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [drawerProjectId]);
+
+  // Toggle expand individual task within drawer
+  const toggleTaskExpand = (taskId: string) => {
+    setExpandedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
   };
 
   // Reset all filters and view period to default Today
@@ -461,17 +637,10 @@ export default function AdminProjectProgress({ employees: propEmployees }: Admin
     );
   }, [viewPeriod, filterEmployee, filterStatus, searchQuery]);
 
-  // Selected Employee object if filtered
-  const selectedEmployeeObj = useMemo(() => {
-    if (filterEmployee === 'ALL') return null;
-    const empIdNum = parseInt(filterEmployee, 10);
-    return availableEmployees.find((e) => e.id === empIdNum) || null;
-  }, [filterEmployee, availableEmployees]);
-
-  // Current active date range text for IST display
+  // Current active date range text for single IST display
   const activeRangeText = useMemo(() => {
     if (summaryTotals?.period_info?.range_display) {
-      return summaryTotals.period_info.range_display;
+      return `${summaryTotals.period_info.range_display} (IST)`;
     }
     if (viewPeriod === 'TODAY') {
       return `${formatUnambiguousDate(todayIst)} (Today, IST)`;
@@ -480,7 +649,7 @@ export default function AdminProjectProgress({ employees: propEmployees }: Admin
       return `${formatUnambiguousDate(selectedDate)} (IST)`;
     }
     if (viewPeriod === 'WEEKLY') {
-      return getMondaySundayOfWeek(selectedWeekDate).label;
+      return `${getMondaySundayOfWeek(selectedWeekDate).label} (IST)`;
     }
     if (viewPeriod === 'MONTHLY') {
       return `${MONTH_NAMES[selectedMonth - 1]} ${selectedYear} (IST)`;
@@ -488,42 +657,34 @@ export default function AdminProjectProgress({ employees: propEmployees }: Admin
     if (viewPeriod === 'CUSTOM') {
       return `${formatUnambiguousDate(customStartDate)} – ${formatUnambiguousDate(customEndDate)} (IST)`;
     }
-    return 'All Historical Activity (Lifetime)';
+    return 'All Time (Lifetime Activity)';
   }, [summaryTotals, viewPeriod, todayIst, selectedDate, selectedWeekDate, selectedMonth, selectedYear, customStartDate, customEndDate]);
 
-  // Status Badge Component
-  const renderStatusBadge = (status: string, statusDisplay?: string) => {
-    if (status === 'ALL_RECORDED_COMPLETED' || status === 'READY_FOR_CLOSURE' || status === 'COMPLETED') {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
-          <CheckCircle2 size={12} className="text-emerald-600 shrink-0" />
-          <span>{statusDisplay || 'All Recorded Tasks Completed'}</span>
-        </span>
-      );
-    }
+  // Distinct contributing employees count across projects
+  const activeEmployeesCount = useMemo(() => {
+    const s = new Set<number>();
+    projects.forEach((p) => {
+      p.assigned_employees?.forEach((e) => s.add(e.id));
+    });
+    return s.size;
+  }, [projects]);
 
-    if (status === 'IN_PROGRESS') {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs">
-          <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
-          <span>{statusDisplay || 'In Progress'}</span>
-        </span>
-      );
-    }
+  // Total recorded tasks across projects
+  const totalRecordedTasksCount = useMemo(() => {
+    return projects.reduce((acc, p) => acc + (p.total_tasks || 0), 0);
+  }, [projects]);
 
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
-        <Clock size={12} className="shrink-0 text-slate-400" />
-        <span>{statusDisplay || 'Not Started'}</span>
-      </span>
-    );
-  };
+  // Active project summary for the drawer (falls back to project in list if details still loading)
+  const activeProjectSummary = useMemo(() => {
+    if (!drawerProjectId) return null;
+    return drawerDetails?.project || projects.find((p) => p.project_id === drawerProjectId) || null;
+  }, [drawerProjectId, drawerDetails, projects]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Error Notification */}
       {errorMsg && (
-        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs sm:text-sm font-semibold flex items-center justify-between shadow-2xs animate-in fade-in">
+        <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs sm:text-sm font-semibold flex items-center justify-between shadow-2xs animate-in fade-in">
           <div className="flex items-center gap-2">
             <AlertTriangle size={16} className="text-rose-600 shrink-0" />
             <span>{errorMsg}</span>
@@ -534,497 +695,396 @@ export default function AdminProjectProgress({ employees: propEmployees }: Admin
         </div>
       )}
 
-      {/* Top Banner & Header (Read-Only Monitoring) */}
-      <div className="clay-card p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-teal-600 flex items-center justify-center text-white shadow-md shrink-0">
-              <FolderKanban size={22} />
-            </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-xl font-black text-slate-900 tracking-tight">Project Progress Hub</h2>
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-700 border border-indigo-200">
-                  Asia/Kolkata
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">
-                Read-only monitoring dashboard of employee-recorded project progress, time tracking, and task delivery
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Active Range Pill Display */}
-          <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-100/90 border border-slate-200/90 text-xs font-semibold text-slate-700">
-            <Calendar size={14} className="text-indigo-600 shrink-0" />
-            <span>Window: <strong className="text-slate-900 font-bold">{activeRangeText}</strong></span>
-          </div>
-
-          <button
-            onClick={loadProjects}
-            className="clay-btn clay-btn-secondary min-h-[44px] px-3.5 text-xs font-bold flex items-center gap-2"
-            title="Refresh Monitoring Data"
-          >
-            <RefreshCw size={14} className={loading ? 'animate-spin text-indigo-600' : 'text-slate-600'} />
-            <span>Refresh</span>
-          </button>
-        </div>
-      </div>
-
-      {/* SECTION 1: VIEW PERIOD FILTER TOOLBAR */}
-      <div className="clay-card p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
-          <div className="flex items-center gap-2">
-            <Calendar size={16} className="text-indigo-600" />
-            <span className="text-xs font-black uppercase tracking-wider text-slate-700">
-              Select View Period
-            </span>
-            <span className="text-[11px] text-slate-400 font-medium">
-              (Matches projects with activity during this window)
-            </span>
-          </div>
-
-          <div className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-100">
-            Active: {activeRangeText}
-          </div>
-        </div>
-
-        {/* View Period Selector Buttons */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {(
-            [
-              { id: 'TODAY', label: 'Today' },
-              { id: 'SPECIFIC', label: 'Specific Date' },
-              { id: 'WEEKLY', label: 'Weekly' },
-              { id: 'MONTHLY', label: 'Monthly' },
-              { id: 'CUSTOM', label: 'Custom Range' },
-              { id: 'ALL', label: 'All Time' },
-            ] as const
-          ).map((p) => {
-            const isActive = viewPeriod === p.id;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => setViewPeriod(p.id)}
-                className={`min-h-[44px] px-4 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
-                  isActive
-                    ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-sm ring-2 ring-indigo-500/20'
-                    : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-              >
-                <span>{p.label}</span>
-                {isActive && <Sparkles size={12} className="opacity-80" />}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Period-Specific Sub-Controls */}
-        <div className="pt-2">
-          {/* 1. TODAY */}
-          {viewPeriod === 'TODAY' && (
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex-wrap">
-              <span className="font-semibold text-slate-700">Today's Window:</span>
-              <span className="font-bold text-indigo-700">{formatUnambiguousDate(todayIst)} (00:00 to 23:59 IST)</span>
-              <span className="text-[11px] text-slate-400">
-                Shows projects where employees recorded work sessions, started tasks, completed tasks, or added progress notes today.
-              </span>
-            </div>
-          )}
-
-          {/* 2. SPECIFIC DATE */}
-          {viewPeriod === 'SPECIFIC' && (
-            <div className="flex items-center gap-2.5 flex-wrap p-3 rounded-xl bg-slate-50 border border-slate-200">
-              <button
-                type="button"
-                onClick={() => setSelectedDate((prev) => shiftDateDays(prev, -1))}
-                className="clay-btn clay-btn-secondary min-h-[44px] px-3 text-xs font-bold flex items-center gap-1"
-                title="Previous Day"
-              >
-                <ChevronLeft size={16} />
-                <span>Prev Day</span>
-              </button>
-
-              <div className="flex-1 min-w-[200px] max-w-xs">
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => {
-                    if (e.target.value) setSelectedDate(e.target.value);
-                  }}
-                  className="clay-input w-full text-sm font-semibold min-h-[44px]"
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setSelectedDate((prev) => shiftDateDays(prev, 1))}
-                className="clay-btn clay-btn-secondary min-h-[44px] px-3 text-xs font-bold flex items-center gap-1"
-                title="Next Day"
-              >
-                <span>Next Day</span>
-                <ChevronRight size={16} />
-              </button>
-
-              {selectedDate !== todayIst && (
+      {/* 1. COMPACT FILTER BAR */}
+      <div className="clay-card p-4 sm:p-5 space-y-3.5">
+        {/* Top Filter Strip: Period Selector + Active Range Badge */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          {/* Period Pills */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {(
+              [
+                { id: 'TODAY', label: 'Today' },
+                { id: 'SPECIFIC', label: 'Specific Date' },
+                { id: 'WEEKLY', label: 'Weekly' },
+                { id: 'MONTHLY', label: 'Monthly' },
+                { id: 'CUSTOM', label: 'Custom Range' },
+                { id: 'ALL', label: 'All Time' },
+              ] as const
+            ).map((p) => {
+              const isActive = viewPeriod === p.id;
+              return (
                 <button
+                  key={p.id}
                   type="button"
-                  onClick={() => setSelectedDate(todayIst)}
-                  className="clay-btn min-h-[44px] px-3 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 border border-indigo-200"
+                  onClick={() => setViewPeriod(p.id)}
+                  className={`min-h-[38px] px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    isActive
+                      ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-xs ring-2 ring-indigo-500/20'
+                      : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
                 >
-                  Jump to Today
+                  <span>{p.label}</span>
+                  {isActive && <Sparkles size={11} className="opacity-80" />}
                 </button>
-              )}
+              );
+            })}
+          </div>
 
-              <span className="text-xs font-bold text-slate-700 ml-auto">
-                Selected: {formatUnambiguousDate(selectedDate)} (IST)
-              </span>
-            </div>
-          )}
-
-          {/* 3. WEEKLY (Monday–Sunday) */}
-          {viewPeriod === 'WEEKLY' && (
-            <div className="flex items-center gap-2.5 flex-wrap p-3 rounded-xl bg-slate-50 border border-slate-200">
-              <button
-                type="button"
-                onClick={() => setSelectedWeekDate((prev) => shiftDateDays(prev, -7))}
-                className="clay-btn clay-btn-secondary min-h-[44px] px-3 text-xs font-bold flex items-center gap-1"
-                title="Previous Week"
-              >
-                <ChevronLeft size={16} />
-                <span>Prev Week</span>
-              </button>
-
-              <div className="flex-1 min-w-[200px] max-w-xs">
-                <input
-                  type="date"
-                  value={selectedWeekDate}
-                  onChange={(e) => {
-                    if (e.target.value) setSelectedWeekDate(e.target.value);
-                  }}
-                  className="clay-input w-full text-sm font-semibold min-h-[44px]"
-                  title="Pick any date in the target week"
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setSelectedWeekDate((prev) => shiftDateDays(prev, 7))}
-                className="clay-btn clay-btn-secondary min-h-[44px] px-3 text-xs font-bold flex items-center gap-1"
-                title="Next Week"
-              >
-                <span>Next Week</span>
-                <ChevronRight size={16} />
-              </button>
-
-              {selectedWeekDate !== todayIst && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedWeekDate(todayIst)}
-                  className="clay-btn min-h-[44px] px-3 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 border border-indigo-200"
-                >
-                  Current Week
-                </button>
-              )}
-
-              <span className="text-xs font-bold text-slate-800 ml-auto">
-                Week Window: {getMondaySundayOfWeek(selectedWeekDate).label}
-              </span>
-            </div>
-          )}
-
-          {/* 4. MONTHLY */}
-          {viewPeriod === 'MONTHLY' && (
-            <div className="flex items-center gap-2.5 flex-wrap p-3 rounded-xl bg-slate-50 border border-slate-200">
-              <button
-                type="button"
-                onClick={() => {
-                  let m = selectedMonth - 1;
-                  let y = selectedYear;
-                  if (m < 1) {
-                    m = 12;
-                    y -= 1;
-                  }
-                  setSelectedMonth(m);
-                  setSelectedYear(y);
-                }}
-                className="clay-btn clay-btn-secondary min-h-[44px] px-3 text-xs font-bold flex items-center gap-1"
-                title="Previous Month"
-              >
-                <ChevronLeft size={16} />
-                <span>Prev Month</span>
-              </button>
-
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
-                className="clay-input text-sm font-semibold min-h-[44px] min-w-[150px]"
-              >
-                {MONTH_NAMES.map((mName, idx) => (
-                  <option key={mName} value={idx + 1}>
-                    {mName}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
-                className="clay-input text-sm font-semibold min-h-[44px] min-w-[100px]"
-              >
-                {[2024, 2025, 2026, 2027, 2028].map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                type="button"
-                onClick={() => {
-                  let m = selectedMonth + 1;
-                  let y = selectedYear;
-                  if (m > 12) {
-                    m = 1;
-                    y += 1;
-                  }
-                  setSelectedMonth(m);
-                  setSelectedYear(y);
-                }}
-                className="clay-btn clay-btn-secondary min-h-[44px] px-3 text-xs font-bold flex items-center gap-1"
-                title="Next Month"
-              >
-                <span>Next Month</span>
-                <ChevronRight size={16} />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedMonth(new Date().getMonth() + 1);
-                  setSelectedYear(new Date().getFullYear());
-                }}
-                className="clay-btn min-h-[44px] px-3 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 border border-indigo-200"
-              >
-                Current Month
-              </button>
-
-              <span className="text-xs font-bold text-slate-800 ml-auto">
-                Selected: {MONTH_NAMES[selectedMonth - 1]} {selectedYear}
-              </span>
-            </div>
-          )}
-
-          {/* 5. CUSTOM RANGE */}
-          {viewPeriod === 'CUSTOM' && (
-            <div className="flex items-center gap-3 flex-wrap p-3 rounded-xl bg-slate-50 border border-slate-200">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-600">From:</span>
-                <input
-                  type="date"
-                  value={customStartDate}
-                  onChange={(e) => {
-                    if (e.target.value) setCustomStartDate(e.target.value);
-                  }}
-                  className="clay-input text-sm font-semibold min-h-[44px]"
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-600">To:</span>
-                <input
-                  type="date"
-                  value={customEndDate}
-                  onChange={(e) => {
-                    if (e.target.value) setCustomEndDate(e.target.value);
-                  }}
-                  className="clay-input text-sm font-semibold min-h-[44px]"
-                />
-              </div>
-
-              <span className="text-xs font-bold text-slate-800 ml-auto">
-                Range: {formatUnambiguousDate(customStartDate)} – {formatUnambiguousDate(customEndDate)} (IST)
-              </span>
-            </div>
-          )}
-
-          {/* 6. ALL TIME */}
-          {viewPeriod === 'ALL' && (
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex-wrap">
-              <span className="font-semibold text-slate-700">All Historical Time:</span>
-              <span className="font-bold text-indigo-700">Full Lifetime Records</span>
-              <span className="text-[11px] text-slate-400">
-                Displays all projects and cumulative lifetime activity without any period boundary restrictions.
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* SECTION 2: ACCURATE PERIOD SUMMARY STAT CARDS (5 Cards) */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
-        {/* Card 1: Projects with Activity */}
-        <div className="clay-card-flat p-4">
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-            Projects with Activity
-          </p>
-          <p className="text-2xl font-black text-slate-900 mt-1">
-            {hasLoadedSuccessfully ? (summaryTotals?.total_projects ?? projects.length) : '--'}
-          </p>
-          <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-            {hasLoadedSuccessfully
-              ? `${summaryTotals?.in_progress_projects ?? 0} in progress, ${summaryTotals?.completed_projects ?? 0} completed`
-              : 'Active in period'}
-          </p>
+          {/* Single IST Date Range Display */}
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50/90 border border-indigo-200/80 text-xs font-semibold text-indigo-900 shrink-0">
+            <Calendar size={13} className="text-indigo-600 shrink-0" />
+            <span>Active Window: <strong className="font-bold text-indigo-950">{activeRangeText}</strong></span>
+          </div>
         </div>
 
-        {/* Card 2: Distinct Tasks Worked On */}
-        <div className="clay-card-flat p-4">
-          <p className="text-[11px] font-bold text-blue-500 uppercase tracking-wider">
-            Tasks Worked On
-          </p>
-          <p className="text-2xl font-black text-blue-700 mt-1">
-            {hasLoadedSuccessfully ? (summaryTotals?.tasks_worked_count ?? 0) : '--'}
-          </p>
-          <p className="text-[11px] text-slate-500 mt-0.5">
-            Logged work in period
-          </p>
-        </div>
-
-        {/* Card 3: Tasks First Started */}
-        <div className="clay-card-flat p-4">
-          <p className="text-[11px] font-bold text-amber-500 uppercase tracking-wider">
-            Tasks Started
-          </p>
-          <p className="text-2xl font-black text-amber-700 mt-1">
-            {hasLoadedSuccessfully ? (summaryTotals?.tasks_started_count ?? 0) : '--'}
-          </p>
-          <p className="text-[11px] text-slate-500 mt-0.5">
-            First started in period
-          </p>
-        </div>
-
-        {/* Card 4: Tasks Completed */}
-        <div className="clay-card-flat p-4">
-          <p className="text-[11px] font-bold text-emerald-500 uppercase tracking-wider">
-            Tasks Completed
-          </p>
-          <p className="text-2xl font-black text-emerald-700 mt-1">
-            {hasLoadedSuccessfully ? (summaryTotals?.tasks_completed_count ?? 0) : '--'}
-          </p>
-          <p className="text-[11px] text-slate-500 mt-0.5">
-            Completed in period
-          </p>
-        </div>
-
-        {/* Card 5: Work Time in Period */}
-        <div className="clay-card-flat p-4 col-span-2 md:col-span-1">
-          <p className="text-[11px] font-bold text-indigo-500 uppercase tracking-wider">
-            Work Time in Period
-          </p>
-          <p className="text-2xl font-black text-indigo-700 mt-1">
-            {hasLoadedSuccessfully ? `${summaryTotals?.period_tracked_hours ?? '0.0'}h` : '--'}
-          </p>
-          <p className="text-[11px] text-slate-500 mt-0.5 truncate" title={`Lifetime: ${summaryTotals?.total_tracked_hours ?? '0.0'}h across matching projects`}>
-            Lifetime: {summaryTotals?.total_tracked_hours ?? '0.0'}h
-          </p>
-        </div>
-      </div>
-
-      {/* SECTION 3: SEARCH, STATUS, EMPLOYEE FILTERS STRIP */}
-      <div className="clay-card-flat p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 flex-wrap">
-        {/* Search input with 44px min-height */}
-        <div className="flex-1 min-w-[240px] relative">
-          <Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-          <input
-            type="text"
-            placeholder="Search by project name or ID..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className="clay-input has-icon-left w-full pl-11 pr-3.5 text-sm min-h-[44px]"
-          />
-        </div>
-
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Status Filter */}
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="clay-input text-sm w-full sm:w-auto min-w-[170px] min-h-[44px]"
-          >
-            <option value="ALL">All Statuses</option>
-            <option value="NOT_STARTED">Not Started</option>
-            <option value="IN_PROGRESS">In Progress</option>
-            <option value="ALL_RECORDED_COMPLETED">All Recorded Tasks Completed</option>
-          </select>
-
-          {/* Employee Filter */}
-          <select
-            value={filterEmployee}
-            onChange={(e) => setFilterEmployee(e.target.value)}
-            className="clay-input text-sm w-full sm:w-auto min-w-[180px] min-h-[44px]"
-          >
-            <option value="ALL">All Employees</option>
-            {availableEmployees.map((emp) => (
-              <option key={emp.id} value={emp.id}>
-                {emp.name} ({emp.employee_id})
-              </option>
-            ))}
-          </select>
-
-          {/* Clear All Filters button */}
-          {isAnyFilterActive && (
+        {/* Inline Period Controls (Visible when not TODAY or ALL) */}
+        {viewPeriod === 'SPECIFIC' && (
+          <div className="flex items-center gap-2 flex-wrap pt-1 text-xs">
             <button
               type="button"
-              onClick={handleClearAllFilters}
-              className="clay-btn clay-btn-secondary px-4 min-h-[44px] text-xs font-bold text-slate-600 hover:text-slate-900 transition flex items-center gap-1.5 cursor-pointer"
-              title="Reset view period to Today and clear search/dropdown filters"
+              onClick={() => setSelectedDate((prev) => shiftDateDays(prev, -1))}
+              className="clay-btn clay-btn-secondary min-h-[36px] px-2.5 text-xs font-bold flex items-center gap-1"
+              title="Previous Day"
             >
-              <RotateCcw size={14} />
-              <span>Clear All Filters</span>
+              <ChevronLeft size={14} />
+              <span>Prev Day</span>
             </button>
-          )}
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => {
+                if (e.target.value) setSelectedDate(e.target.value);
+              }}
+              className="clay-input text-xs font-semibold min-h-[36px] max-w-[160px]"
+            />
+            <button
+              type="button"
+              onClick={() => setSelectedDate((prev) => shiftDateDays(prev, 1))}
+              className="clay-btn clay-btn-secondary min-h-[36px] px-2.5 text-xs font-bold flex items-center gap-1"
+              title="Next Day"
+            >
+              <span>Next Day</span>
+              <ChevronRight size={14} />
+            </button>
+            {selectedDate !== todayIst && (
+              <button
+                type="button"
+                onClick={() => setSelectedDate(todayIst)}
+                className="clay-btn min-h-[36px] px-2.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 border border-indigo-200"
+              >
+                Today
+              </button>
+            )}
+          </div>
+        )}
+
+        {viewPeriod === 'WEEKLY' && (
+          <div className="flex items-center gap-2 flex-wrap pt-1 text-xs">
+            <button
+              type="button"
+              onClick={() => setSelectedWeekDate((prev) => shiftDateDays(prev, -7))}
+              className="clay-btn clay-btn-secondary min-h-[36px] px-2.5 text-xs font-bold flex items-center gap-1"
+              title="Previous Week"
+            >
+              <ChevronLeft size={14} />
+              <span>Prev Week</span>
+            </button>
+            <input
+              type="date"
+              value={selectedWeekDate}
+              onChange={(e) => {
+                if (e.target.value) setSelectedWeekDate(e.target.value);
+              }}
+              className="clay-input text-xs font-semibold min-h-[36px] max-w-[160px]"
+            />
+            <button
+              type="button"
+              onClick={() => setSelectedWeekDate((prev) => shiftDateDays(prev, 7))}
+              className="clay-btn clay-btn-secondary min-h-[36px] px-2.5 text-xs font-bold flex items-center gap-1"
+              title="Next Week"
+            >
+              <span>Next Week</span>
+              <ChevronRight size={14} />
+            </button>
+            {selectedWeekDate !== todayIst && (
+              <button
+                type="button"
+                onClick={() => setSelectedWeekDate(todayIst)}
+                className="clay-btn min-h-[36px] px-2.5 text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 border border-indigo-200"
+              >
+                Current Week
+              </button>
+            )}
+          </div>
+        )}
+
+        {viewPeriod === 'MONTHLY' && (
+          <div className="flex items-center gap-2 flex-wrap pt-1 text-xs">
+            <button
+              type="button"
+              onClick={() => {
+                let m = selectedMonth - 1;
+                let y = selectedYear;
+                if (m < 1) { m = 12; y -= 1; }
+                setSelectedMonth(m);
+                setSelectedYear(y);
+              }}
+              className="clay-btn clay-btn-secondary min-h-[36px] px-2.5 text-xs font-bold flex items-center gap-1"
+              title="Previous Month"
+            >
+              <ChevronLeft size={14} />
+              <span>Prev</span>
+            </button>
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(parseInt(e.target.value, 10))}
+              className="clay-input text-xs font-semibold min-h-[36px] min-w-[120px]"
+            >
+              {MONTH_NAMES.map((mName, idx) => (
+                <option key={mName} value={idx + 1}>{mName}</option>
+              ))}
+            </select>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
+              className="clay-input text-xs font-semibold min-h-[36px] min-w-[80px]"
+            >
+              {[2024, 2025, 2026, 2027, 2028].map((y) => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                let m = selectedMonth + 1;
+                let y = selectedYear;
+                if (m > 12) { m = 1; y += 1; }
+                setSelectedMonth(m);
+                setSelectedYear(y);
+              }}
+              className="clay-btn clay-btn-secondary min-h-[36px] px-2.5 text-xs font-bold flex items-center gap-1"
+              title="Next Month"
+            >
+              <span>Next</span>
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        )}
+
+        {viewPeriod === 'CUSTOM' && (
+          <div className="flex items-center gap-2 flex-wrap pt-1 text-xs">
+            <span className="font-semibold text-slate-600">From:</span>
+            <input
+              type="date"
+              value={customStartDate}
+              onChange={(e) => {
+                if (e.target.value) setCustomStartDate(e.target.value);
+              }}
+              className="clay-input text-xs font-semibold min-h-[36px]"
+            />
+            <span className="font-semibold text-slate-600">To:</span>
+            <input
+              type="date"
+              value={customEndDate}
+              onChange={(e) => {
+                if (e.target.value) setCustomEndDate(e.target.value);
+              }}
+              className="clay-input text-xs font-semibold min-h-[36px]"
+            />
+          </div>
+        )}
+
+        {/* Bottom Strip: Search, Employee, Status, Clear Filters, Refresh */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-2 border-t border-slate-100 flex-wrap">
+          {/* Search Project */}
+          <div className="flex-1 min-w-[220px] relative">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search project name or ID..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className="clay-input has-icon-left w-full pl-9 pr-3 text-xs min-h-[38px]"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Employee Filter */}
+            <select
+              value={filterEmployee}
+              onChange={(e) => setFilterEmployee(e.target.value)}
+              className="clay-input text-xs font-medium min-w-[150px] min-h-[38px]"
+            >
+              <option value="ALL">All Employees</option>
+              {availableEmployees.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.name} ({emp.employee_id})
+                </option>
+              ))}
+            </select>
+
+            {/* Status Filter */}
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="clay-input text-xs font-medium min-w-[140px] min-h-[38px]"
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="NOT_STARTED">Not Started</option>
+              <option value="IN_PROGRESS">In Progress</option>
+              <option value="ALL_RECORDED_COMPLETED">Recorded Tasks Completed</option>
+            </select>
+
+            {/* Clear Filters Button */}
+            {isAnyFilterActive && (
+              <button
+                type="button"
+                onClick={handleClearAllFilters}
+                className="clay-btn clay-btn-secondary min-h-[38px] px-3 text-xs font-bold text-slate-600 hover:text-slate-900 transition flex items-center gap-1.5 cursor-pointer"
+                title="Reset to Today and clear all search/filter options"
+              >
+                <RotateCcw size={13} />
+                <span>Clear Filters</span>
+              </button>
+            )}
+
+            {/* Refresh Button */}
+            <button
+              type="button"
+              onClick={loadProjects}
+              className="clay-btn clay-btn-secondary min-h-[38px] px-3 text-xs font-bold flex items-center gap-1.5"
+              title="Refresh project data"
+            >
+              <RefreshCw size={13} className={loading ? 'animate-spin text-indigo-600' : 'text-slate-600'} />
+              <span className="hidden sm:inline">Refresh</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Selected Employee Context Banner if employee filter is active */}
-      {selectedEmployeeObj && (
-        <div className="p-3.5 rounded-xl bg-indigo-50/70 border border-indigo-200/80 flex items-center justify-between text-xs text-indigo-900 flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <Users size={16} className="text-indigo-600 shrink-0" />
-            <span>
-              Filtering by employee: <strong className="font-bold text-indigo-950">{selectedEmployeeObj.name} ({selectedEmployeeObj.employee_id})</strong>.
-              Showing their period contributions, task counts, and tracked time.
-            </span>
+      {/* 2. FOUR MAIN SUMMARY CARDS */}
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {/* Card 1: Projects with Activity */}
+          <div className="clay-card-flat p-4 border border-slate-200/80">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                Projects with Activity
+              </span>
+              <FolderKanban size={16} className="text-indigo-600 shrink-0" />
+            </div>
+            <p className="text-2xl font-black text-slate-900 mt-1.5">
+              {hasLoadedSuccessfully ? (summaryTotals?.total_projects ?? projects.length) : '--'}
+            </p>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Active in selected period
+            </p>
           </div>
+
+          {/* Card 2: Tasks Worked On */}
+          <div className="clay-card-flat p-4 border border-slate-200/80">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-blue-600 uppercase tracking-wider">
+                Tasks Worked On
+              </span>
+              <Briefcase size={16} className="text-blue-600 shrink-0" />
+            </div>
+            <p className="text-2xl font-black text-blue-700 mt-1.5">
+              {hasLoadedSuccessfully ? (summaryTotals?.tasks_worked_count ?? 0) : '--'}
+            </p>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Distinct tasks worked in period
+            </p>
+          </div>
+
+          {/* Card 3: Tasks Completed */}
+          <div className="clay-card-flat p-4 border border-slate-200/80">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider">
+                Tasks Completed
+              </span>
+              <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+            </div>
+            <p className="text-2xl font-black text-emerald-700 mt-1.5">
+              {hasLoadedSuccessfully ? (summaryTotals?.tasks_completed_count ?? 0) : '--'}
+            </p>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Recorded tasks completed in period
+            </p>
+          </div>
+
+          {/* Card 4: Time Worked */}
+          <div className="clay-card-flat p-4 border border-slate-200/80">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-amber-600 uppercase tracking-wider">
+                Time Worked
+              </span>
+              <Clock size={16} className="text-amber-600 shrink-0" />
+            </div>
+            <p className="text-2xl font-black text-amber-700 mt-1.5">
+              {hasLoadedSuccessfully ? formatCompactDuration(summaryTotals?.period_tracked_seconds ?? 0) : '--'}
+            </p>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Tracked in selected period
+            </p>
+          </div>
+        </div>
+
+        {/* Expandable "More Summary" Toggle & Panel */}
+        <div className="flex items-center justify-end">
           <button
             type="button"
-            onClick={() => setFilterEmployee('ALL')}
-            className="text-xs font-bold text-indigo-700 hover:text-indigo-900 underline cursor-pointer"
+            onClick={() => setShowMoreSummary((prev) => !prev)}
+            className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-700 hover:text-indigo-900 transition px-2.5 py-1 rounded-lg hover:bg-indigo-50 cursor-pointer"
           >
-            Show All Employees
+            <span>{showMoreSummary ? 'Hide Extra Statistics' : 'More Summary'}</span>
+            {showMoreSummary ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
         </div>
-      )}
 
-      {/* SECTION 4: PROJECTS MONITORING LIST */}
-      <div className="space-y-4">
+        {showMoreSummary && (
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-3 animate-in fade-in duration-200 text-xs">
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Contributing Employees</span>
+              <span className="text-base font-bold text-slate-900">{activeEmployeesCount}</span>
+              <span className="block text-[10px] text-slate-500">Active across matching projects</span>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Tasks First Started</span>
+              <span className="text-base font-bold text-slate-900">{summaryTotals?.tasks_started_count ?? 0}</span>
+              <span className="block text-[10px] text-slate-500">Started during selected window</span>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Recorded Tasks</span>
+              <span className="text-base font-bold text-slate-900">{totalRecordedTasksCount}</span>
+              <span className="block text-[10px] text-slate-500">Total in matching projects</span>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase font-bold text-slate-400 block">Lifetime Tracked Time</span>
+              <span className="text-base font-bold text-slate-900">
+                {formatCompactDuration(summaryTotals?.total_tracked_seconds ?? 0)}
+              </span>
+              <span className="block text-[10px] text-slate-500">Total historical tracked time</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 3. PROJECT MONITORING LIST / TABLE */}
+      <div>
         {loading ? (
           <div className="clay-card p-12 text-center text-slate-500 flex flex-col items-center justify-center gap-3">
             <RefreshCw size={26} className="animate-spin text-indigo-600" />
-            <p className="text-sm font-semibold">Loading project monitoring data for {activeRangeText}...</p>
+            <p className="text-sm font-semibold">Loading project progress for {activeRangeText}...</p>
           </div>
         ) : !hasLoadedSuccessfully && errorMsg ? (
           <div className="clay-card p-12 text-center text-slate-500 flex flex-col items-center justify-center gap-3">
             <AlertTriangle size={32} className="text-rose-500 mx-auto" />
-            <p className="text-base font-bold text-slate-800">Unable to load project monitoring data</p>
+            <p className="text-base font-bold text-slate-800">Unable to load project progress data</p>
             <p className="text-xs text-slate-500 max-w-md mx-auto">{errorMsg}</p>
             <button
               onClick={loadProjects}
-              className="mt-2 min-h-[44px] px-5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition flex items-center gap-2 shadow-xs cursor-pointer"
+              className="mt-2 min-h-[40px] px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition flex items-center gap-2 shadow-xs cursor-pointer"
             >
               <RefreshCw size={14} />
               <span>Retry Now</span>
@@ -1038,592 +1098,305 @@ export default function AdminProjectProgress({ employees: propEmployees }: Admin
             </p>
             <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
               {isAnyFilterActive
-                ? `No projects had recorded activity during the window ${activeRangeText} matching your active filters. Try selecting a broader period or resetting filters.`
-                : 'Project activity will appear here when employees record their work.'}
+                ? `No projects had recorded activity during ${activeRangeText} matching your filters. Try resetting filters.`
+                : 'Project activity will appear here as employees track time.'}
             </p>
             {isAnyFilterActive && (
               <button
                 type="button"
                 onClick={handleClearAllFilters}
-                className="mt-4 inline-flex items-center gap-2 min-h-[44px] px-4 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
+                className="mt-4 inline-flex items-center gap-2 min-h-[38px] px-4 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition cursor-pointer"
               >
-                <RotateCcw size={14} />
+                <RotateCcw size={13} />
                 <span>Reset to Today</span>
               </button>
             )}
           </div>
         ) : (
-          <>
-            {paginatedProjects.map((project) => {
-              const isExpanded = expandedProjectId === project.project_id;
-              const overallCompletion = project.completion_percentage;
-              const empProgress = project.employee_progress;
-              const periodSec = project.period_tracked_seconds ?? 0;
-              const lifetimeSec = project.lifetime_tracked_seconds ?? project.total_tracked_seconds ?? 0;
+          <div className="space-y-4">
+            {/* DESKTOP TABLE (Hidden on mobile) */}
+            <div className="hidden md:block clay-card overflow-hidden border border-slate-200/80">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50/90 border-b border-slate-200 text-slate-600 uppercase tracking-wider font-bold">
+                  <tr>
+                    <th className="py-3 px-4">Project</th>
+                    <th className="py-3 px-4">Employees</th>
+                    <th className="py-3 px-4">Reported Status</th>
+                    <th className="py-3 px-4">Time in Period</th>
+                    <th className="py-3 px-4">
+                      <div>Interval (IST)</div>
+                      <div className="text-[10px] text-slate-400 font-normal lowercase">Work session times</div>
+                    </th>
+                    <th className="py-3 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {paginatedProjects.map((project) => {
+                    const isSelected = drawerProjectId === project.project_id;
+                    const reportedStatus = getProjectReportedStatus(project.assigned_employees);
+                    const cleanDesc = getCleanProjectDescription(project.description, project.name);
 
-              return (
-                <div
-                  key={project.project_id}
-                  className={`clay-card transition border ${
-                    isExpanded ? 'ring-2 ring-indigo-500/30 border-indigo-200' : 'border-slate-200/80'
-                  }`}
-                >
-                  {/* Project Card Header */}
-                  <div className="p-5 sm:p-6 space-y-4">
-                    <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
-                      {/* Left: Project Title, ID, Description, Status */}
-                      <div className="space-y-2 flex-1 min-w-0">
-                        <div className="flex items-center gap-2.5 flex-wrap">
-                          <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
-                            {project.project_id}
-                          </span>
-                          <h3 className="text-lg font-extrabold text-slate-900 tracking-tight truncate">
-                            {project.name}
-                          </h3>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[11px] font-bold text-slate-400 uppercase">Current Status:</span>
-                            {renderStatusBadge(project.status, project.status_display)}
-                          </div>
-                        </div>
-
-                        {project.description && (
-                          <p className="text-xs text-slate-600 line-clamp-2 max-w-2xl">
-                            {project.description}
-                          </p>
-                        )}
-
-                        {/* Tracked Time: Period vs Lifetime clearly separated */}
-                        <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap pt-1">
-                          {/* Work Time in Period */}
-                          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-900 font-bold">
-                            <Clock size={13} className="text-indigo-600" />
-                            <span>Work Time in Selected Period:</span>
-                            <span className="text-indigo-950 font-black">
-                              {project.time_worked_in_period || formatDigitalDuration(periodSec)}
-                            </span>
-                          </div>
-
-                          {/* Lifetime Tracked Time */}
-                          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-medium">
-                            <Hourglass size={13} className="text-slate-500" />
-                            <span>Lifetime Tracked Time:</span>
-                            <span className="font-bold text-slate-900">
-                              {project.lifetime_tracked_time || formatDigitalDuration(lifetimeSec)}
-                            </span>
-                          </div>
-
-                          {/* Started At Display */}
-                          {project.started_at_display ? (
-                            <span className="text-slate-600 text-[11px]">
-                              First started: <strong className="font-semibold text-slate-800">{project.started_at_display}</strong>
-                            </span>
-                          ) : (
-                            <span className="text-slate-400 text-[11px] italic">Work not yet started</span>
-                          )}
-
-                          {/* Deadline display if set */}
-                          {project.deadline_display && (
-                            <span className="text-slate-600 text-[11px]">
-                              Deadline: <strong className="font-semibold text-slate-800">{project.deadline_display}</strong>
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Activity Badges in Selected Period */}
-                        <div className="flex items-center gap-2 pt-1 flex-wrap">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                            Period Activity:
-                          </span>
-                          {(project.period_tasks_worked_count ?? 0) > 0 ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                              <Briefcase size={10} /> {project.period_tasks_worked_count} Tasks Worked
-                            </span>
-                          ) : null}
-
-                          {(project.period_tasks_started_count ?? 0) > 0 ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                              <Clock size={10} /> {project.period_tasks_started_count} Started
-                            </span>
-                          ) : null}
-
-                          {(project.period_tasks_completed_count ?? 0) > 0 ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              <CheckCircle2 size={10} /> {project.period_tasks_completed_count} Completed
-                            </span>
-                          ) : null}
-
-                          {(project.period_tasks_worked_count ?? 0) === 0 &&
-                           (project.period_tasks_started_count ?? 0) === 0 &&
-                           (project.period_tasks_completed_count ?? 0) === 0 && (
-                            <span className="text-[10px] text-slate-400 italic">
-                              Matching notes / task creation in period
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Right: Progress Metrics & Inspect Action */}
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-4 lg:shrink-0">
-                        {/* Progress Bars: Selected Employee's Progress AND/OR Current Overall Progress */}
-                        <div className="w-full sm:w-60 space-y-2">
-                          {/* If employee filter is active, show Selected Employee's Task Completion first */}
-                          {filterEmployee !== 'ALL' && empProgress && (
-                            <div className="p-2.5 rounded-xl bg-indigo-50/80 border border-indigo-200/80 space-y-1">
-                              <div className="flex items-center justify-between text-xs">
-                                <span className="font-bold text-indigo-950">Selected Employee's Task Completion:</span>
-                                <span className="font-black text-indigo-700">
-                                  {empProgress.completion_percentage !== null ? `${empProgress.completion_percentage}%` : '--'}
-                                </span>
-                              </div>
-                              <div className="w-full h-2 rounded-full bg-indigo-100 overflow-hidden">
-                                <div
-                                  className="h-full bg-gradient-to-r from-indigo-500 to-teal-500 transition-all duration-300"
-                                  style={{ width: `${empProgress.completion_percentage ?? 0}%` }}
-                                />
-                              </div>
-                              <div className="text-[10px] text-indigo-800 font-semibold">
-                                {empProgress.completed_tasks} of {empProgress.total_tasks} tasks completed
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Current Overall Progress */}
-                          <div className="space-y-1">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="font-bold text-slate-700">Current Overall Progress:</span>
-                              <span className="font-extrabold text-slate-900">
-                                {overallCompletion !== null ? `${overallCompletion}%` : 'No tasks'}
-                              </span>
-                            </div>
-                            <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden border border-slate-200/60">
-                              <div
-                                className={`h-full transition-all duration-300 ${
-                                  ['ALL_RECORDED_COMPLETED', 'READY_FOR_CLOSURE', 'COMPLETED'].includes(project.status)
-                                    ? 'bg-emerald-500'
-                                    : 'bg-gradient-to-r from-indigo-500 to-teal-500'
-                                }`}
-                                style={{ width: `${overallCompletion ?? 0}%` }}
-                              />
-                            </div>
-                            <div className="text-[11px] text-slate-400 font-medium">
-                              {project.completed_tasks} of {project.total_tasks} total tasks completed
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Inspect / Collapse Button */}
-                        <div className="flex items-center">
+                    return (
+                      <tr
+                        key={project.project_id}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`View details for project ${project.name}`}
+                        onClick={() => handleOpenDrawer(project.project_id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleOpenDrawer(project.project_id);
+                          }
+                        }}
+                        className={`group cursor-pointer transition-colors focus:outline-hidden focus:bg-indigo-50/60 focus:ring-2 focus:ring-inset focus:ring-indigo-500/40 ${
+                          isSelected ? 'bg-indigo-50/60 ring-1 ring-inset ring-indigo-200' : 'hover:bg-slate-50/80'
+                        }`}
+                      >
+                        {/* Project Name & ID */}
+                        <td className="py-3.5 px-4 align-top">
                           <button
                             type="button"
-                            onClick={() => handleToggleExpand(project.project_id)}
-                            className={`min-h-[44px] px-4 rounded-xl border transition flex items-center gap-1.5 text-xs font-bold cursor-pointer ${
-                              isExpanded 
-                                ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-xs' 
-                                : 'border-slate-200 hover:bg-slate-50 text-slate-700'
-                            }`}
-                            title={isExpanded ? 'Collapse' : 'Inspect Period Tasks, Sessions & Contributions'}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenDrawer(project.project_id);
+                            }}
+                            className="font-extrabold text-slate-900 text-sm hover:text-indigo-600 transition text-left cursor-pointer focus:outline-hidden focus:underline"
                           >
-                            <span>{isExpanded ? 'Hide Details' : 'Inspect'}</span>
-                            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            {project.name}
                           </button>
-                        </div>
-                      </div>
-                    </div>
+                          <div className="font-mono text-[11px] text-slate-400 mt-0.5">{project.project_id}</div>
+                          {cleanDesc && (
+                            <div className="text-[11px] text-slate-500 line-clamp-1 max-w-xs mt-0.5">
+                              {cleanDesc}
+                            </div>
+                          )}
+                        </td>
 
-                    {/* Contributing Employees Preview */}
-                    <div className="flex items-center gap-3 pt-2 border-t border-slate-100 flex-wrap">
-                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                        Contributing Employees:
-                      </span>
-                      {project.assigned_employees.length === 0 ? (
-                        <span className="text-xs text-slate-400 italic">No employees recorded yet</span>
-                      ) : (
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          {project.assigned_employees.map((emp) => {
-                            const isSelected = filterEmployee !== 'ALL' && emp.id === parseInt(filterEmployee, 10);
-                            return (
-                              <span
-                                key={emp.id}
-                                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-semibold ${
-                                  isSelected
-                                    ? 'bg-indigo-100 text-indigo-800 border border-indigo-300 font-bold'
-                                    : 'bg-slate-100 text-slate-700 border border-slate-200'
-                                }`}
-                              >
-                                <Users size={12} className={isSelected ? 'text-indigo-600' : 'text-slate-400'} />
-                                {emp.name}
-                                <span className="text-[10px] text-slate-400 font-mono">({emp.employee_id})</span>
+                        {/* Contributing Employees */}
+                        <td className="py-3.5 px-4 align-top">
+                          {project.assigned_employees.length === 0 ? (
+                            <span className="text-slate-400 italic">None</span>
+                          ) : project.assigned_employees.length <= 2 ? (
+                            <div className="flex flex-col gap-0.5">
+                              {project.assigned_employees.map((e) => (
+                                <span key={e.id} className="font-medium text-slate-800 truncate max-w-[170px]">
+                                  {e.name}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-medium text-slate-800">
+                                {project.assigned_employees[0].name}
                               </span>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                              <span
+                                className="text-[10px] font-bold px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded-md border border-slate-200 cursor-help"
+                                title={project.assigned_employees.map((e) => e.name).join(', ')}
+                              >
+                                +{project.assigned_employees.length - 1} more
+                              </span>
+                            </div>
+                          )}
+                        </td>
 
-                  {/* Expanded Project Details (Filtered by active period and employee) */}
-                  {isExpanded && (
-                    <div className="border-t border-slate-200/90 bg-slate-50/70 p-5 sm:p-6 space-y-5 rounded-b-2xl">
-                      {/* Period scope indicator in details */}
-                      <div className="flex items-center justify-between text-xs text-slate-600 bg-white p-3 rounded-xl border border-slate-200 flex-wrap gap-2">
-                        <div className="flex items-center gap-2">
-                          <Calendar size={14} className="text-indigo-600" />
-                          <span>Detailed records filtered for period: <strong className="text-slate-900 font-bold">{activeRangeText}</strong></span>
-                        </div>
-                        {filterEmployee !== 'ALL' && selectedEmployeeObj && (
-                          <div className="text-xs font-semibold text-indigo-700">
-                            Employee: {selectedEmployeeObj.name}
+                        {/* Reported Status Badge */}
+                        <td className="py-3.5 px-4 align-top">
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${reportedStatus.colorClass}`}
+                            title={reportedStatus.explanation}
+                          >
+                            {reportedStatus.status === 'MIXED' ? (
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-600" />
+                            ) : reportedStatus.status === 'COMPLETED' ? (
+                              <CheckCircle2 size={12} className="text-emerald-600 shrink-0" />
+                            ) : reportedStatus.status === 'IN_PROGRESS' ? (
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
+                            ) : (
+                              <Clock size={12} className="text-slate-400 shrink-0" />
+                            )}
+                            <span>{reportedStatus.label}</span>
+                          </span>
+                        </td>
+
+                        {/* Time in Period (e.g. 1h 25m) */}
+                        <td className="py-3.5 px-4 align-top font-mono font-bold text-slate-900 text-xs">
+                          {formatCompactDuration(project.period_tracked_seconds)}
+                        </td>
+
+                        {/* Interval (IST) */}
+                        <td className="py-3.5 px-4 align-top">
+                          {!project.primary_interval || project.primary_interval === 'No work session' ? (
+                            <span className="text-slate-400 italic text-xs">No work session</span>
+                          ) : (
+                            <div className="flex flex-col gap-1 items-start">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {project.primary_interval.includes('Running') && (
+                                  <span
+                                    className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block shrink-0"
+                                    title="Active session running"
+                                  />
+                                )}
+                                <span
+                                  className={`font-mono text-xs font-semibold ${
+                                    project.primary_interval.includes('Running')
+                                      ? 'text-emerald-700'
+                                      : 'text-slate-800'
+                                  }`}
+                                >
+                                  {project.primary_interval}
+                                </span>
+                              </div>
+                              {project.extra_intervals_count && project.extra_intervals_count > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenDrawer(project.project_id, 'sessions');
+                                  }}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/80 hover:bg-indigo-100 hover:text-indigo-800 transition cursor-pointer"
+                                  title={`Click to view all ${project.extra_intervals_count + 1} work intervals`}
+                                >
+                                  <span>+{project.extra_intervals_count} more</span>
+                                </button>
+                              ) : null}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* View Details Action Button */}
+                        <td className="py-3.5 px-4 align-top text-right">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenDrawer(project.project_id);
+                            }}
+                            className={`min-h-[36px] px-3.5 py-1 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 cursor-pointer ${
+                              isSelected
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'bg-slate-100 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200'
+                            }`}
+                            title="View Details"
+                          >
+                            <span>View Details</span>
+                            <ChevronRight size={14} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* MOBILE CARDS (Visible on mobile, hidden on desktop) */}
+            <div className="block md:hidden space-y-3">
+              {paginatedProjects.map((project) => {
+                const isSelected = drawerProjectId === project.project_id;
+                const reportedStatus = getProjectReportedStatus(project.assigned_employees);
+                const cleanDesc = getCleanProjectDescription(project.description, project.name);
+
+                return (
+                  <div
+                    key={project.project_id}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`View details for project ${project.name}`}
+                    onClick={() => handleOpenDrawer(project.project_id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleOpenDrawer(project.project_id);
+                      }
+                    }}
+                    className={`clay-card p-4 space-y-3 border transition cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-indigo-500/50 ${
+                      isSelected ? 'ring-2 ring-indigo-500/40 border-indigo-200 bg-indigo-50/20' : 'border-slate-200/80 hover:border-slate-300'
+                    }`}
+                  >
+                    {/* Project Header */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h3 className="font-bold text-slate-900 text-sm">{project.name}</h3>
+                        <span className="font-mono text-[10px] text-slate-400">{project.project_id}</span>
+                        {cleanDesc && (
+                          <p className="text-xs text-slate-500 line-clamp-2 mt-0.5">{cleanDesc}</p>
+                        )}
+                      </div>
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border shrink-0 ${reportedStatus.colorClass}`}
+                      >
+                        {reportedStatus.label}
+                      </span>
+                    </div>
+
+                    {/* Metadata Grid */}
+                    <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-slate-100">
+                      <div>
+                        <span className="text-[10px] text-slate-400 font-bold uppercase block">Employees</span>
+                        <span className="font-medium text-slate-800 line-clamp-1">
+                          {project.assigned_employees.length > 0
+                            ? project.assigned_employees.map((e) => e.name).join(', ')
+                            : 'None'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 font-bold uppercase block">Time in Period</span>
+                        <span className="font-mono font-bold text-indigo-700">
+                          {formatCompactDuration(project.period_tracked_seconds)}
+                        </span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase block">Interval (IST)</span>
+                        {!project.primary_interval || project.primary_interval === 'No work session' ? (
+                          <span className="text-slate-400 italic text-xs">No work session</span>
+                        ) : (
+                          <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                            {project.primary_interval.includes('Running') && (
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                            )}
+                            <span
+                              className={`font-mono text-xs font-bold ${
+                                project.primary_interval.includes('Running')
+                                  ? 'text-emerald-700'
+                                  : 'text-slate-800'
+                              }`}
+                            >
+                              {project.primary_interval}
+                            </span>
+                            {project.extra_intervals_count && project.extra_intervals_count > 0 ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenDrawer(project.project_id, 'sessions');
+                                }}
+                                className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 cursor-pointer"
+                              >
+                                +{project.extra_intervals_count} more
+                              </button>
+                            ) : null}
                           </div>
                         )}
                       </div>
-
-                      {/* Detail Tabs */}
-                      <div className="flex items-center gap-2 border-b border-slate-200 pb-2 flex-wrap">
-                        <button
-                          type="button"
-                          onClick={() => setDetailTab('tasks')}
-                          className={`min-h-[40px] px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                            detailTab === 'tasks'
-                              ? 'bg-white text-indigo-700 shadow-xs border border-slate-200'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          <Briefcase size={14} />
-                          <span>Tasks ({expandedProjectDetails?.tasks?.length || 0})</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setDetailTab('sessions')}
-                          className={`min-h-[40px] px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                            detailTab === 'sessions'
-                              ? 'bg-white text-indigo-700 shadow-xs border border-slate-200'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          <Clock size={14} />
-                          <span>Work Sessions ({expandedProjectDetails?.work_sessions?.length || 0})</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setDetailTab('notes')}
-                          className={`min-h-[40px] px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                            detailTab === 'notes'
-                              ? 'bg-white text-indigo-700 shadow-xs border border-slate-200'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          <MessageSquare size={14} />
-                          <span>Progress Notes ({expandedProjectDetails?.progress_notes?.length || 0})</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setDetailTab('contributions')}
-                          className={`min-h-[40px] px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                            detailTab === 'contributions'
-                              ? 'bg-white text-indigo-700 shadow-xs border border-slate-200'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          <Users size={14} />
-                          <span>Employee Contributions ({expandedProjectDetails?.employee_contributions?.length || 0})</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setDetailTab('audit')}
-                          className={`min-h-[40px] px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                            detailTab === 'audit'
-                              ? 'bg-white text-indigo-700 shadow-xs border border-slate-200'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          <History size={14} />
-                          <span>Audit History</span>
-                        </button>
-                      </div>
-
-                      {loadingDetails ? (
-                        <div className="py-8 text-center text-slate-400 flex items-center justify-center gap-2">
-                          <RefreshCw size={18} className="animate-spin text-indigo-600" />
-                          <span className="text-xs font-semibold">Loading period project details...</span>
-                        </div>
-                      ) : (
-                        <>
-                          {/* TAB 1: TASKS */}
-                          {detailTab === 'tasks' && (
-                            <div className="space-y-3">
-                              {expandedProjectDetails?.tasks?.length === 0 ? (
-                                <div className="p-8 text-center bg-white rounded-xl border border-dashed border-slate-200 text-slate-400">
-                                  <Briefcase size={28} className="mx-auto text-slate-300 mb-1" />
-                                  <p className="text-xs font-semibold">No tasks recorded under this project matching active filters.</p>
-                                </div>
-                              ) : (
-                                expandedProjectDetails?.tasks?.map((task) => (
-                                  <div
-                                    key={task.task_id}
-                                    className="p-4 rounded-xl bg-white border border-slate-200/90 shadow-2xs space-y-3"
-                                  >
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                      <div className="space-y-1">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
-                                            {task.task_id}
-                                          </span>
-                                          <h4 className="text-sm font-bold text-slate-900">{task.title}</h4>
-                                          {task.status === 'COMPLETED' ? (
-                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                              <Check size={10} /> Completed
-                                            </span>
-                                          ) : task.status === 'IN_PROGRESS' ? (
-                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                                              <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" /> In Progress
-                                            </span>
-                                          ) : (
-                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">
-                                              Not Started
-                                            </span>
-                                          )}
-                                        </div>
-                                        {task.description && (
-                                          <p className="text-xs text-slate-600 max-w-xl">{task.description}</p>
-                                        )}
-                                      </div>
-                                    </div>
-
-                                    {/* Task Meta details */}
-                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-2 border-t border-slate-100 text-xs text-slate-500">
-                                      <div>
-                                        <span className="text-[10px] text-slate-400 block font-bold uppercase">Assigned To</span>
-                                        <span className="font-semibold text-slate-800">
-                                          {task.assigned_to ? `${task.assigned_to.name} (${task.assigned_to.employee_id})` : 'Unassigned'}
-                                        </span>
-                                      </div>
-                                      <div>
-                                        <span className="text-[10px] text-indigo-500 block font-bold uppercase">Period Time</span>
-                                        <span className="font-bold text-indigo-700">
-                                          {task.time_worked_in_period || formatDigitalDuration(task.period_duration_seconds || 0)}
-                                        </span>
-                                      </div>
-                                      <div>
-                                        <span className="text-[10px] text-slate-400 block font-bold uppercase">Lifetime Time</span>
-                                        <span className="font-semibold text-slate-800">
-                                          {formatDigitalDuration(task.total_duration_seconds)}
-                                        </span>
-                                      </div>
-                                      <div>
-                                        <span className="text-[10px] text-slate-400 block font-bold uppercase">First Started</span>
-                                        <span className="font-semibold text-slate-800">
-                                          {task.first_started_at_display || '--'}
-                                        </span>
-                                      </div>
-                                      <div>
-                                        <span className="text-[10px] text-slate-400 block font-bold uppercase">Completed At</span>
-                                        <span className="font-semibold text-slate-800">
-                                          {task.completed_at_display || '--'}
-                                        </span>
-                                      </div>
-                                    </div>
-
-                                    {/* Reopen Info if present */}
-                                    {task.reopened_at && (
-                                      <div className="p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs">
-                                        <span className="font-bold">Reopened:</span> by {task.reopened_by || 'Employee'}
-                                        {task.reopen_reason && (
-                                          <span className="italic block mt-0.5">Reason: "{task.reopen_reason}"</span>
-                                        )}
-                                      </div>
-                                    )}
-
-                                    {/* Progress Notes inside Task */}
-                                    {task.progress_notes.length > 0 && (
-                                      <div className="pt-2 border-t border-slate-100 space-y-1.5">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                                          <MessageSquare size={11} /> Progress Notes ({task.progress_notes.length}):
-                                        </span>
-                                        <div className="space-y-1">
-                                          {task.progress_notes.slice(0, 3).map((note) => (
-                                            <div key={note.note_id} className="text-xs bg-slate-50 p-2 rounded-lg border border-slate-200/60">
-                                              <div className="flex items-center justify-between text-[10px] text-slate-400">
-                                                <span className="font-bold text-slate-700">{note.author_name}</span>
-                                                <span>{note.created_at_display || new Date(note.created_at).toLocaleString()}</span>
-                                              </div>
-                                              <p className="text-slate-700 mt-0.5">{note.content}</p>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                ))
-                              )}
-                            </div>
-                          )}
-
-                          {/* TAB 2: WORK SESSIONS */}
-                          {detailTab === 'sessions' && (
-                            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                              {expandedProjectDetails?.work_sessions?.length === 0 ? (
-                                <div className="p-8 text-center text-slate-400 text-xs">
-                                  No work sessions recorded within the selected period window ({activeRangeText}).
-                                </div>
-                              ) : (
-                                <div className="overflow-x-auto">
-                                  <table className="w-full text-left text-xs">
-                                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold">
-                                      <tr>
-                                        <th className="py-2.5 px-4">Date (IST)</th>
-                                        <th className="py-2.5 px-4">Task</th>
-                                        <th className="py-2.5 px-4">Employee</th>
-                                        <th className="py-2.5 px-4">Time Interval</th>
-                                        <th className="py-2.5 px-4">Overlapping Duration</th>
-                                        <th className="py-2.5 px-4">Status</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                      {expandedProjectDetails?.work_sessions?.map((ws: any, idx: number) => (
-                                        <tr key={ws.session_id || idx} className="hover:bg-slate-50/50">
-                                          <td className="py-2.5 px-4 font-semibold text-slate-900">
-                                            {ws.date_display || ws.date}
-                                          </td>
-                                          <td className="py-2.5 px-4 text-slate-800">
-                                            <span className="font-mono text-[10px] text-slate-400 mr-1.5">[{ws.task_id}]</span>
-                                            <span className="font-semibold">{ws.task_title}</span>
-                                          </td>
-                                          <td className="py-2.5 px-4 font-medium text-slate-700">
-                                            {ws.user_name}
-                                          </td>
-                                          <td className="py-2.5 px-4 text-slate-500 font-mono text-[11px]">
-                                            {ws.start_time_display || ws.start_time?.slice(11, 16) || '--'} – {ws.end_time_display || ws.end_time?.slice(11, 16) || 'Active'}
-                                          </td>
-                                          <td className="py-2.5 px-4 font-mono font-bold text-indigo-700">
-                                            {formatDigitalDuration(ws.duration_seconds)}
-                                          </td>
-                                          <td className="py-2.5 px-4">
-                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
-                                              {ws.status}
-                                            </span>
-                                          </td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* TAB 3: PROGRESS NOTES */}
-                          {detailTab === 'notes' && (
-                            <div className="space-y-2">
-                              {expandedProjectDetails?.progress_notes?.length === 0 ? (
-                                <div className="p-8 text-center text-slate-400 text-xs bg-white rounded-xl border border-slate-200">
-                                  No progress notes recorded during the selected period.
-                                </div>
-                              ) : (
-                                expandedProjectDetails?.progress_notes?.map((note: any) => (
-                                  <div
-                                    key={note.note_id}
-                                    className="p-3.5 rounded-xl bg-white border border-slate-200 text-xs space-y-1.5"
-                                  >
-                                    <div className="flex items-center justify-between text-[11px] text-slate-500 border-b border-slate-100 pb-1">
-                                      <span className="font-bold text-slate-800">
-                                        {note.author_name} • <span className="font-medium text-slate-600">Task: {note.task_title}</span>
-                                      </span>
-                                      <span className="font-mono text-slate-400">{note.created_at_display}</span>
-                                    </div>
-                                    <p className="text-slate-800 text-xs">{note.content}</p>
-                                  </div>
-                                ))
-                              )}
-                            </div>
-                          )}
-
-                          {/* TAB 4: EMPLOYEE CONTRIBUTIONS */}
-                          {detailTab === 'contributions' && (
-                            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                              {expandedProjectDetails?.employee_contributions?.length === 0 ? (
-                                <div className="p-8 text-center text-slate-400 text-xs">
-                                  No employee contributions recorded yet.
-                                </div>
-                              ) : (
-                                <div className="overflow-x-auto">
-                                  <table className="w-full text-left text-xs">
-                                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold">
-                                      <tr>
-                                        <th className="py-2.5 px-4">Employee</th>
-                                        <th className="py-2.5 px-4">Department</th>
-                                        <th className="py-2.5 px-4">Work Time in Period</th>
-                                        <th className="py-2.5 px-4">Tasks Worked in Period</th>
-                                        <th className="py-2.5 px-4">Tasks Completed in Period</th>
-                                        <th className="py-2.5 px-4">Lifetime Tracked Time</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                      {expandedProjectDetails?.employee_contributions?.map((c) => (
-                                        <tr key={c.user_id} className="hover:bg-slate-50/50">
-                                          <td className="py-2.5 px-4 font-bold text-slate-900">
-                                            {c.employee_name} <span className="font-mono text-slate-400 text-[11px]">({c.employee_id})</span>
-                                          </td>
-                                          <td className="py-2.5 px-4 text-slate-600">{c.department || '--'}</td>
-                                          <td className="py-2.5 px-4 font-mono font-bold text-indigo-700 bg-indigo-50/40">
-                                            {formatDigitalDuration(c.period_duration_seconds ?? 0)}
-                                          </td>
-                                          <td className="py-2.5 px-4 text-slate-700 font-semibold">{c.period_tasks_worked ?? 0}</td>
-                                          <td className="py-2.5 px-4 text-emerald-700 font-bold">{c.period_tasks_completed ?? 0}</td>
-                                          <td className="py-2.5 px-4 font-mono text-slate-600">
-                                            {formatDigitalDuration(c.total_duration_seconds ?? 0)}
-                                          </td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* TAB 5: AUDIT HISTORY */}
-                          {detailTab === 'audit' && (
-                            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                              {expandedProjectDetails?.audit_records?.length === 0 ? (
-                                <div className="p-8 text-center text-slate-400 text-xs bg-white rounded-xl border border-slate-200">
-                                  No audit events recorded.
-                                </div>
-                              ) : (
-                                expandedProjectDetails?.audit_records?.map((record: any) => (
-                                  <div
-                                    key={record.audit_id}
-                                    className="p-3 rounded-lg bg-white border border-slate-200/80 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-1"
-                                  >
-                                    <div>
-                                      <span className="font-bold text-indigo-700 font-mono text-[11px] mr-2">
-                                        [{record.action}]
-                                      </span>
-                                      <span className="text-slate-800 font-medium">by {record.actor_name}</span>
-                                      {record.reason && (
-                                        <span className="text-slate-600 italic block mt-0.5">
-                                          Reason: "{record.reason}"
-                                        </span>
-                                      )}
-                                    </div>
-                                    <span className="text-[11px] text-slate-400 shrink-0 font-medium">
-                                      {record.timestamp_display || (record.timestamp ? new Date(record.timestamp).toLocaleString() : '--')}
-                                    </span>
-                                  </div>
-                                ))
-                              )}
-                            </div>
-                          )}
-                        </>
-                      )}
                     </div>
-                  )}
-                </div>
-              );
-            })}
+
+                    {/* View Details Button */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenDrawer(project.project_id);
+                      }}
+                      className="w-full min-h-[44px] rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 bg-slate-100 text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 cursor-pointer"
+                    >
+                      <span>View Details</span>
+                      <ChevronRight size={15} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
 
             {/* Pagination Controls */}
             {projects.length > pageSize && (
@@ -1636,7 +1409,7 @@ export default function AdminProjectProgress({ employees: propEmployees }: Admin
                     type="button"
                     disabled={currentPage === 1}
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                    className="min-h-[40px] px-3.5 py-1.5 rounded-lg border border-slate-200 font-bold hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                    className="min-h-[38px] px-3.5 py-1.5 rounded-lg border border-slate-200 font-bold hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
                   >
                     Previous
                   </button>
@@ -1647,16 +1420,566 @@ export default function AdminProjectProgress({ employees: propEmployees }: Admin
                     type="button"
                     disabled={currentPage >= totalPages}
                     onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                    className="min-h-[40px] px-3.5 py-1.5 rounded-lg border border-slate-200 font-bold hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+                    className="min-h-[38px] px-3.5 py-1.5 rounded-lg border border-slate-200 font-bold hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
                   >
                     Next
                   </button>
                 </div>
               </div>
             )}
-          </>
+          </div>
         )}
       </div>
+
+      {/* 4. DETAILS DRAWER: Right-side on Desktop, Full-screen on Mobile */}
+      {drawerProjectId && (
+        <>
+          {/* Desktop Backdrop */}
+          <div
+            className="hidden md:block fixed inset-0 bg-slate-900/40 backdrop-blur-2xs z-40 transition-opacity animate-in fade-in"
+            onClick={handleCloseDrawer}
+            aria-hidden="true"
+          />
+
+          {/* Drawer Container */}
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Project Details Panel"
+            className="fixed inset-y-0 right-0 z-50 w-full md:max-w-2xl bg-white shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200 border-l border-slate-200"
+          >
+            {/* Drawer Header */}
+            <div className="px-5 py-4 border-b border-slate-200 bg-white flex items-start justify-between gap-3 shrink-0">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                    {drawerProjectId}
+                  </span>
+                  <h3 className="text-base font-extrabold text-slate-900 truncate">
+                    {activeProjectSummary?.name || 'Project Details'}
+                  </h3>
+                </div>
+                {activeProjectSummary && getCleanProjectDescription(activeProjectSummary.description, activeProjectSummary.name) && (
+                  <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                    {getCleanProjectDescription(activeProjectSummary.description, activeProjectSummary.name)}
+                  </p>
+                )}
+                <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500 flex-wrap">
+                  <span className="flex items-center gap-1 font-medium text-slate-700">
+                    <Calendar size={13} className="text-indigo-600" />
+                    <span>{activeRangeText}</span>
+                  </span>
+                  {filterEmployee !== 'ALL' && (
+                    <span className="text-indigo-600 font-semibold">
+                      • Filtered by employee
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Close Button */}
+              <button
+                type="button"
+                onClick={handleCloseDrawer}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer shrink-0 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                title="Close Details (Esc)"
+                aria-label="Close details"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Drawer Body (Scrollable) */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {/* If Drawer Error */}
+              {drawerError ? (
+                <div className="p-6 rounded-xl bg-rose-50 border border-rose-200 text-center space-y-2">
+                  <AlertTriangle size={24} className="text-rose-600 mx-auto" />
+                  <p className="text-sm font-bold text-rose-900">{drawerError}</p>
+                  <button
+                    type="button"
+                    onClick={() => fetchDrawerDetails(drawerProjectId)}
+                    className="min-h-[38px] px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 cursor-pointer mt-2"
+                  >
+                    <RefreshCw size={14} />
+                    <span>Retry</span>
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Top 3 KPI Cards */}
+                  <div className="grid grid-cols-3 gap-2.5">
+                    {/* KPI 1: Time in Period */}
+                    <div className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-100">
+                      <span className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider block">
+                        Time in Period
+                      </span>
+                      <p className="text-lg font-black text-indigo-950 font-mono mt-0.5">
+                        {formatCompactDuration(activeProjectSummary?.period_tracked_seconds)}
+                      </p>
+                      <span className="text-[10px] text-indigo-600 block truncate">In selected window</span>
+                    </div>
+
+                    {/* KPI 2: Tasks Completed */}
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        Tasks Completed
+                      </span>
+                      <p className="text-lg font-black text-slate-900 mt-0.5">
+                        {activeProjectSummary ? `${activeProjectSummary.completed_tasks} of ${activeProjectSummary.total_tasks}` : '--'}
+                      </p>
+                      <span className="text-[10px] text-slate-400 block truncate">Recorded tasks completed</span>
+                    </div>
+
+                    {/* KPI 3: Reported Status */}
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                        Reported Status
+                      </span>
+                      <div className="mt-1">
+                        {activeProjectSummary ? (
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold border ${
+                              getProjectReportedStatus(activeProjectSummary.assigned_employees).colorClass
+                            }`}
+                          >
+                            {getProjectReportedStatus(activeProjectSummary.assigned_employees).label}
+                          </span>
+                        ) : '--'}
+                      </div>
+                      <span className="text-[10px] text-slate-400 block truncate mt-0.5">Current contribution</span>
+                    </div>
+                  </div>
+
+                  {/* Contributing Employees and Reported Project Status */}
+                  <div className="p-4 rounded-xl bg-slate-50/80 border border-slate-200 space-y-2.5">
+                    <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                        <Users size={14} className="text-indigo-600" />
+                        <span>Contributing Employees & Reported Status</span>
+                      </span>
+                      {activeProjectSummary && getProjectReportedStatus(activeProjectSummary.assigned_employees).status === 'MIXED' && (
+                        <span className="text-[10px] text-amber-800 font-bold bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
+                          Mixed Status
+                        </span>
+                      )}
+                    </div>
+
+                    {activeProjectSummary?.assigned_employees && activeProjectSummary.assigned_employees.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {activeProjectSummary.assigned_employees.map((emp) => (
+                          <div key={emp.id} className="p-2.5 rounded-lg bg-white border border-slate-200 text-xs space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-900">{emp.name}</span>
+                              <span className="font-mono text-[10px] text-slate-400">{emp.employee_id}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[11px] text-slate-500">Reported:</span>
+                              <span
+                                className={`px-2 py-0.2 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                  emp.employee_project_status === 'COMPLETED'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : emp.employee_project_status === 'IN_PROGRESS'
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : 'bg-sky-100 text-sky-800'
+                                }`}
+                              >
+                                {emp.employee_project_status_display || 'Just Started'}
+                              </span>
+                            </div>
+                            {emp.employee_project_status_updated_at_display && (
+                              <span className="text-[10px] text-slate-400 block">
+                                Updated: {emp.employee_project_status_updated_at_display}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 italic">No employees assigned to this project yet.</p>
+                    )}
+                  </div>
+
+                  {/* Navigation Tabs inside Drawer */}
+                  <div className="flex items-center gap-1.5 border-b border-slate-200 pb-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setDrawerTab('tasks')}
+                      className={`min-h-[36px] px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                        drawerTab === 'tasks'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      <Briefcase size={13} />
+                      <span>Tasks ({drawerDetails?.tasks?.length ?? activeProjectSummary?.total_tasks ?? 0})</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setDrawerTab('sessions')}
+                      className={`min-h-[36px] px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                        drawerTab === 'sessions'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      <Clock size={13} />
+                      <span>Work Sessions ({drawerDetails?.work_sessions?.length || 0})</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setDrawerTab('notes')}
+                      className={`min-h-[36px] px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                        drawerTab === 'notes'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      <MessageSquare size={13} />
+                      <span>Progress Notes ({drawerDetails?.progress_notes?.length || 0})</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setDrawerTab('contributions')}
+                      className={`min-h-[36px] px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                        drawerTab === 'contributions'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      <Users size={13} />
+                      <span>Employee Breakdown</span>
+                    </button>
+                  </div>
+
+                  {/* Loading indicator while fetching details */}
+                  {loadingDrawer ? (
+                    <div className="py-12 text-center text-slate-500 flex flex-col items-center justify-center gap-2">
+                      <RefreshCw size={22} className="animate-spin text-indigo-600" />
+                      <p className="text-xs font-semibold">Loading details for {activeProjectSummary?.name}...</p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* TAB 1: TASKS LIST WITH EXPANDABLE TASK DETAILS */}
+                      {drawerTab === 'tasks' && (
+                        <div className="space-y-2.5">
+                          {drawerDetails?.tasks?.length === 0 ? (
+                            <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400 text-xs">
+                              No tasks found under this project for {activeRangeText}.
+                            </div>
+                          ) : (
+                            drawerDetails?.tasks?.map((task) => {
+                              const isTaskExpanded = expandedTaskIds.has(task.task_id);
+
+                              return (
+                                <div
+                                  key={task.task_id}
+                                  className="rounded-xl border border-slate-200 bg-white overflow-hidden transition"
+                                >
+                                  {/* Task Summary Row */}
+                                  <div
+                                    tabIndex={0}
+                                    role="button"
+                                    onClick={() => toggleTaskExpand(task.task_id)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        toggleTaskExpand(task.task_id);
+                                      }
+                                    }}
+                                    className="p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 cursor-pointer hover:bg-slate-50/80 transition"
+                                  >
+                                    <div className="space-y-1 flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                                          {task.task_id}
+                                        </span>
+                                        <h4 className="font-bold text-slate-900 text-xs sm:text-sm truncate">
+                                          {task.title}
+                                        </h4>
+                                        {task.status === 'COMPLETED' ? (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.2 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                            <Check size={10} /> Completed
+                                          </span>
+                                        ) : task.status === 'IN_PROGRESS' ? (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.2 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" /> In Progress
+                                          </span>
+                                        ) : (
+                                          <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">
+                                            Not Started
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      <div className="flex items-center gap-3 text-[11px] text-slate-500 flex-wrap">
+                                        {task.assigned_to && (
+                                          <span>
+                                            Employee: <strong className="text-slate-800">{task.assigned_to.name}</strong>
+                                          </span>
+                                        )}
+                                        <span>
+                                          Period: <strong className="font-mono text-indigo-700">{formatCompactDuration(task.period_duration_seconds)}</strong>
+                                        </span>
+                                        {task.last_activity_display && (
+                                          <span>Last activity: <strong className="text-slate-700">{task.last_activity_display}</strong></span>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <span className="text-[11px] text-slate-400 font-semibold">
+                                        {isTaskExpanded ? 'Hide' : 'Expand'}
+                                      </span>
+                                      {isTaskExpanded ? <ChevronUp size={15} className="text-slate-500" /> : <ChevronDown size={15} className="text-slate-500" />}
+                                    </div>
+                                  </div>
+
+                                  {/* Expanded Task Details */}
+                                  {isTaskExpanded && (
+                                    <div className="border-t border-slate-100 bg-slate-50/60 p-3.5 space-y-3 text-xs">
+                                      {task.description && (
+                                        <div>
+                                          <span className="text-[10px] text-slate-400 font-bold uppercase block">Description</span>
+                                          <p className="text-slate-700 mt-0.5">{task.description}</p>
+                                        </div>
+                                      )}
+
+                                      {/* Task Sessions */}
+                                      <div>
+                                        <span className="text-[10px] text-slate-400 font-bold uppercase block mb-1">
+                                          Work Sessions in Period ({task.work_sessions?.length || 0})
+                                        </span>
+                                        {task.work_sessions && task.work_sessions.length > 0 ? (
+                                          <div className="space-y-1">
+                                            {task.work_sessions.map((ws: any, idx: number) => (
+                                              <div key={ws.session_id || idx} className="p-2 rounded bg-white border border-slate-200 flex items-center justify-between text-[11px]">
+                                                <span className="font-semibold text-slate-800">{ws.date_display || ws.date}</span>
+                                                <span className="font-mono text-slate-500">{ws.start_time_display || '--'} – {ws.end_time_display || 'Active'}</span>
+                                                <span className="font-mono font-bold text-indigo-700">{formatCompactDuration(ws.duration_seconds)}</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <p className="text-[11px] text-slate-400 italic">No work sessions recorded for this task in the selected period.</p>
+                                        )}
+                                      </div>
+
+                                      {/* Task Notes */}
+                                      {task.progress_notes && task.progress_notes.length > 0 && (
+                                        <div>
+                                          <span className="text-[10px] text-slate-400 font-bold uppercase block mb-1">
+                                            Progress Notes ({task.progress_notes.length})
+                                          </span>
+                                          <div className="space-y-1">
+                                            {task.progress_notes.map((note) => (
+                                              <div key={note.note_id} className="p-2 rounded bg-white border border-slate-200 text-[11px]">
+                                                <div className="flex items-center justify-between text-slate-400 mb-0.5">
+                                                  <span className="font-bold text-slate-700">{note.author_name}</span>
+                                                  <span>{note.created_at_display}</span>
+                                                </div>
+                                                <p className="text-slate-800">{note.content}</p>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
+
+                      {/* TAB 2: WORK SESSIONS */}
+                      {drawerTab === 'sessions' && (
+                        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                          {drawerDetails?.work_sessions?.length === 0 ? (
+                            <div className="p-8 text-center text-slate-400 text-xs">
+                              No work sessions recorded within {activeRangeText}.
+                            </div>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-xs">
+                                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold">
+                                  <tr>
+                                    <th className="py-2.5 px-3">Date (IST)</th>
+                                    <th className="py-2.5 px-3">Task</th>
+                                    <th className="py-2.5 px-3">Employee</th>
+                                    <th className="py-2.5 px-3">Interval</th>
+                                    <th className="py-2.5 px-3">Duration</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {drawerDetails?.work_sessions?.map((ws: any, idx: number) => (
+                                    <tr key={ws.session_id || idx} className="hover:bg-slate-50/50">
+                                      <td className="py-2 px-3 font-semibold text-slate-900">{ws.date_display || ws.date}</td>
+                                      <td className="py-2 px-3 text-slate-800 font-medium">{ws.task_title}</td>
+                                      <td className="py-2 px-3 text-slate-700">
+                                        <span className="font-semibold text-slate-800">{ws.user_name}</span>
+                                        {ws.employee_id && (
+                                          <span className="font-mono text-slate-400 text-[10px] ml-1">({ws.employee_id})</span>
+                                        )}
+                                      </td>
+                                      <td className="py-2 px-3 font-mono text-[11px]">
+                                        <div className="flex items-center gap-1.5">
+                                          {ws.is_running && (
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                                          )}
+                                          <span className={ws.is_running ? 'text-emerald-700 font-bold' : 'text-slate-700 font-semibold'}>
+                                            {ws.interval_display || `${ws.start_time_display || '--'} – ${ws.end_time_display || (ws.is_running ? 'Running' : '--')}`}
+                                          </span>
+                                        </div>
+                                      </td>
+                                      <td className="py-2 px-3 font-mono font-bold text-indigo-700">
+                                        {formatCompactDuration(ws.duration_seconds)}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* TAB 3: PROGRESS NOTES */}
+                      {drawerTab === 'notes' && (
+                        <div className="space-y-2">
+                          {drawerDetails?.progress_notes?.length === 0 ? (
+                            <div className="p-8 text-center text-slate-400 text-xs bg-slate-50 rounded-xl border border-slate-200">
+                              No progress notes recorded during {activeRangeText}.
+                            </div>
+                          ) : (
+                            drawerDetails?.progress_notes?.map((note: any) => (
+                              <div
+                                key={note.note_id}
+                                className="p-3 rounded-xl bg-white border border-slate-200 text-xs space-y-1"
+                              >
+                                <div className="flex items-center justify-between text-[11px] text-slate-500 border-b border-slate-100 pb-1">
+                                  <span className="font-bold text-slate-800">
+                                    {note.author_name} • <span className="font-medium text-slate-600">{note.task_title}</span>
+                                  </span>
+                                  <span className="font-mono text-slate-400">{note.created_at_display}</span>
+                                </div>
+                                <p className="text-slate-800 text-xs mt-0.5">{note.content}</p>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+
+                      {/* TAB 4: EMPLOYEE CONTRIBUTIONS */}
+                      {drawerTab === 'contributions' && (
+                        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                          {drawerDetails?.employee_contributions?.length === 0 ? (
+                            <div className="p-8 text-center text-slate-400 text-xs">
+                              No employee contributions recorded yet.
+                            </div>
+                          ) : (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-xs">
+                                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-bold">
+                                  <tr>
+                                    <th className="py-2.5 px-3">Employee</th>
+                                    <th className="py-2.5 px-3">Reported</th>
+                                    <th className="py-2.5 px-3">Period Time</th>
+                                    <th className="py-2.5 px-3">Tasks Completed</th>
+                                    <th className="py-2.5 px-3">Lifetime Time</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {drawerDetails?.employee_contributions?.map((c) => (
+                                    <tr key={c.user_id} className="hover:bg-slate-50/50">
+                                      <td className="py-2.5 px-3 font-bold text-slate-900">
+                                        {c.employee_name} <span className="font-mono text-slate-400 text-[11px]">({c.employee_id})</span>
+                                      </td>
+                                      <td className="py-2.5 px-3">
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                          c.employee_project_status === 'COMPLETED'
+                                            ? 'bg-emerald-100 text-emerald-800'
+                                            : c.employee_project_status === 'IN_PROGRESS'
+                                            ? 'bg-blue-100 text-blue-800'
+                                            : 'bg-sky-100 text-sky-800'
+                                        }`}>
+                                          {c.employee_project_status_display || 'Just Started'}
+                                        </span>
+                                      </td>
+                                      <td className="py-2.5 px-3 font-mono font-bold text-indigo-700 bg-indigo-50/30">
+                                        {formatCompactDuration(c.period_duration_seconds ?? 0)}
+                                      </td>
+                                      <td className="py-2.5 px-3 text-emerald-700 font-bold">{c.period_tasks_completed ?? 0}</td>
+                                      <td className="py-2.5 px-3 font-mono text-slate-600">
+                                        {formatCompactDuration(c.total_duration_seconds ?? 0)}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {/* 5. ADDITIONAL INFORMATION (Collapsible Accordion) */}
+                  <div className="border border-slate-200 rounded-xl bg-slate-50/70 overflow-hidden text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setShowAdditionalInfo((prev) => !prev)}
+                      className="w-full p-3.5 flex items-center justify-between text-left font-bold text-slate-700 hover:text-slate-900 hover:bg-slate-100/80 transition cursor-pointer"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Info size={14} className="text-indigo-600" />
+                        <span>Additional Information (Lifetime & History)</span>
+                      </span>
+                      {showAdditionalInfo ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                    </button>
+
+                    {showAdditionalInfo && (
+                      <div className="p-3.5 border-t border-slate-200 bg-white grid grid-cols-2 gap-3 animate-in fade-in duration-150">
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-bold uppercase block">Lifetime Tracked Time</span>
+                          <span className="font-mono font-bold text-slate-900 text-sm">
+                            {formatCompactDuration(activeProjectSummary?.lifetime_tracked_seconds ?? activeProjectSummary?.total_tracked_seconds)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-bold uppercase block">First Started Date</span>
+                          <span className="font-semibold text-slate-800">
+                            {activeProjectSummary?.started_at_display || (activeProjectSummary?.first_started_at ? formatDateTimeIst(activeProjectSummary.first_started_at) : 'Not started')}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-bold uppercase block">Project Created</span>
+                          <span className="font-medium text-slate-700">
+                            {activeProjectSummary?.created_at ? formatDateTimeIst(activeProjectSummary.created_at) : '--'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-bold uppercase block">Last Updated</span>
+                          <span className="font-medium text-slate-700">
+                            {activeProjectSummary?.updated_at ? formatDateTimeIst(activeProjectSummary.updated_at) : '--'}
+                          </span>
+                        </div>
+                        <div className="col-span-2 pt-1 border-t border-slate-100 text-[11px] text-slate-500">
+                          <strong>Note:</strong> Time in Period includes only activity recorded within {activeRangeText}. Lifetime time and reported status reflect overall historical metrics.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

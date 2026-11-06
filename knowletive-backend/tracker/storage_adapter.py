@@ -162,12 +162,16 @@ class TimeEventStorage:
             try:
                 cleaned = str(t_dict['current_segment_start']).replace("Z", "+00:00")
                 seg_start = datetime.fromisoformat(cleaned)
-                base_sec += max(0, int((now_utc - seg_start).total_seconds()))
+                now_ist_date = now_utc.astimezone(IST_TZ).date()
+                seg_ist_date = seg_start.astimezone(IST_TZ).date()
+                # Only live segment started today in IST accumulates active time
+                if seg_ist_date == now_ist_date:
+                    base_sec += max(0, int((now_utc - seg_start).total_seconds()))
             except Exception: pass
-        elif not t_dict.get('work_segments') and not t_dict.get('duration_seconds') and t_dict.get('start_time'):
+        elif not t_dict.get('work_segments') and not t_dict.get('duration_seconds') and t_dict.get('start_time') and t_dict.get('end_time'):
             try:
                 s_dt = datetime.fromisoformat(str(t_dict['start_time']).replace("Z", "+00:00"))
-                e_dt = datetime.fromisoformat(str(t_dict['end_time']).replace("Z", "+00:00")) if t_dict.get('end_time') else now_utc
+                e_dt = datetime.fromisoformat(str(t_dict['end_time']).replace("Z", "+00:00"))
                 base_sec = max(0, int((e_dt - s_dt).total_seconds()))
             except Exception: base_sec = 0
         return base_sec
@@ -341,11 +345,12 @@ class TimeEventStorage:
                 
             task.current_segment_start = None
             task.end_time = now_utc
-            task.status = 'COMPLETED'
             if is_explicit_completed:
+                task.status = 'COMPLETED'
                 task.is_explicit_completed = True
                 task.completed_at = now_utc
             else:
+                task.status = 'ENDED'
                 task.is_explicit_completed = False
             task.updated_at = now_utc
             task.save()
@@ -380,10 +385,15 @@ class TimeEventStorage:
             self.log_audit(action="TASK_ENDED", actor=user_email, details={"task_log_id": task.task_id, "project_name": task.project_name, "task_name": task.task_name, "end_time": now_utc, "is_completed": is_explicit_completed})
             return t_dict
 
-    def end_any_active_task_for_user(self, user_id, end_time_iso=None):
-        active_t = self.get_active_task_for_user(user_id)
-        if active_t: return self.end_task(user_id=user_id, task_log_id=active_t.get('task_log_id'))
-        return None
+    def end_any_active_task_for_user(self, user_id, end_time_iso=None, exclude_task_id=None):
+        with self._lock:
+            qs = TaskLog.objects.filter(user_id=int(user_id), status__in=['IN_PROGRESS', 'PAUSED'])
+            if exclude_task_id:
+                qs = qs.exclude(project_task_id=str(exclude_task_id))
+            task = qs.first()
+            if task:
+                return self.end_task(user_id=user_id, task_log_id=task.task_id)
+            return None
 
     def get_active_task_for_user(self, user_id):
         with self._lock:

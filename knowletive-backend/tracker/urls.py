@@ -79,6 +79,7 @@ urlpatterns = [
     path('project-tasks/<str:task_id>/note/', views.project_task_note_view, name='project_task_note'),
     path('project-tasks/<str:task_id>/complete/', views.project_task_complete_view, name='project_task_complete'),
     path('project-tasks/<str:task_id>/reopen/', views.project_task_reopen_view, name='project_task_reopen'),
+    path('employee/project-status/', views.employee_project_status_view, name='employee_project_status'),
 
     # Extension Distribution
     path('extension/version/', views.extension_version_view, name='extension_version'),

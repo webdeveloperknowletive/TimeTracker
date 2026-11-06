@@ -6,7 +6,7 @@ import {
   Settings as SettingsIcon, Calendar,
   FolderKanban, ListTodo, RefreshCw, KeyRound, Copy,
   CheckCircle2, UserCheck, UserX, Bell, Link2, TrendingUp,
-  X, Filter, CheckCircle, Eye, EyeOff, Menu, FolderGit2
+  X, Filter, CheckCircle, Eye, EyeOff, Menu, FolderGit2, Sparkles
 } from 'lucide-react';
 import api from '../lib/api';
 import DailyTaskAnalyticsDashboard from '../components/DailyTaskAnalyticsDashboard';
@@ -32,6 +32,7 @@ export default function Admin() {
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string>('');
+  const [successMsg, setSuccessMsg] = useState<string>('');
 
   // Attendance local search & filter
   const [attendanceSearch, setAttendanceSearch] = useState<string>('');
@@ -101,9 +102,73 @@ export default function Admin() {
     last_name: '',
     email: '',
     department: '',
+    designation: '',
     role: 'EMPLOYEE',
     password: ''
   });
+  const [designationChoice, setDesignationChoice] = useState<string>('Software Developer');
+  const [customDesignation, setCustomDesignation] = useState<string>('');
+
+  const handleOpenAddUserModal = () => {
+    setEditUserData(null);
+    setUserFormData({
+      username: '',
+      first_name: '',
+      last_name: '',
+      email: '',
+      department: '',
+      designation: 'Software Developer',
+      role: 'EMPLOYEE',
+      password: ''
+    });
+    setDesignationChoice('Software Developer');
+    setCustomDesignation('');
+    setShowUserPassword(false);
+    setShowAddUserModal(true);
+  };
+
+  const handleOpenEditUserModal = (u: any) => {
+    setEditUserData(u);
+    const desig = (u.designation || '').trim();
+    let choice = '';
+    let custom = '';
+    if (desig === 'Software Developer' || desig === 'HR' || desig === 'Data Analyst') {
+      choice = desig;
+    } else if (!desig) {
+      choice = '';
+    } else {
+      choice = 'OTHER';
+      custom = desig;
+    }
+    setDesignationChoice(choice);
+    setCustomDesignation(custom);
+    setUserFormData({
+      username: u.username || '',
+      first_name: u.first_name || '',
+      last_name: u.last_name || '',
+      email: u.email || '',
+      department: u.department || '',
+      designation: desig,
+      role: u.role || 'EMPLOYEE',
+      password: ''
+    });
+    setShowUserPassword(false);
+    setShowAddUserModal(true);
+  };
+
+  const handleDesignationChoiceChange = (newChoice: string) => {
+    setDesignationChoice(newChoice);
+    if (newChoice === 'OTHER') {
+      setUserFormData((prev) => ({ ...prev, designation: customDesignation.trim() }));
+    } else {
+      setUserFormData((prev) => ({ ...prev, designation: newChoice }));
+    }
+  };
+
+  const handleCustomDesignationChange = (val: string) => {
+    setCustomDesignation(val);
+    setUserFormData((prev) => ({ ...prev, designation: val }));
+  };
 
   // Correction modal
   const [showCorrectionModal, setShowCorrectionModal] = useState<boolean>(false);
@@ -372,20 +437,39 @@ export default function Admin() {
 
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (designationChoice === 'OTHER' && !customDesignation.trim()) {
+      setErrorMsg('Please specify a custom designation or select Unspecified.');
+      return;
+    }
+
+    const finalDesignation = designationChoice === 'OTHER' ? customDesignation.trim() : designationChoice;
+    const finalFormData = {
+      ...userFormData,
+      designation: finalDesignation
+    };
+
     try {
       if (editUserData) {
-        await api.patch(`/admin/users/${editUserData.id}/`, userFormData);
+        const patchData = { ...finalFormData };
+        if (!patchData.password) {
+          delete (patchData as any).password;
+        }
+        await api.patch(`/admin/users/${editUserData.id}/`, patchData);
+        setSuccessMsg(`User "${editUserData.name || editUserData.username}" updated successfully.`);
       } else {
         const payload = {
-          ...userFormData,
-          username: (userFormData.username || userFormData.email || `${userFormData.first_name.toLowerCase()}`).trim()
+          ...finalFormData,
+          username: (finalFormData.username || finalFormData.email || `${finalFormData.first_name.toLowerCase()}`).trim()
         };
         await api.post('/admin/users/', payload);
+        setSuccessMsg('New user created successfully.');
       }
       setShowAddUserModal(false);
       setShowUserPassword(false);
       setEditUserData(null);
-      setUserFormData({ username: '', first_name: '', last_name: '', email: '', department: '', role: 'EMPLOYEE', password: '' });
+      setUserFormData({ username: '', first_name: '', last_name: '', email: '', department: '', designation: '', role: 'EMPLOYEE', password: '' });
+      setDesignationChoice('Software Developer');
+      setCustomDesignation('');
       loadAllAdminData();
     } catch (err: any) {
       setErrorMsg(err.response?.data?.error || 'Failed to save user details.');
@@ -899,6 +983,22 @@ export default function Admin() {
             <button 
               onClick={() => setErrorMsg('')} 
               className="text-xs text-rose-700 hover:text-rose-900 font-bold underline shrink-0 px-2 py-1"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* Success Alert */}
+        {successMsg && (
+          <div className="p-4 clay-card bg-emerald-50/90 border-emerald-200 flex items-center justify-between gap-3 text-emerald-900 text-sm shadow-xs animate-in fade-in">
+            <div className="flex items-center gap-3">
+              <CheckCircle size={18} className="shrink-0 text-emerald-600" />
+              <span className="font-semibold text-xs sm:text-sm">{successMsg}</span>
+            </div>
+            <button 
+              onClick={() => setSuccessMsg('')} 
+              className="text-xs text-emerald-700 hover:text-emerald-900 font-bold underline shrink-0 px-2 py-1"
             >
               Dismiss
             </button>
@@ -1933,12 +2033,7 @@ export default function Admin() {
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => {
-                      setEditUserData(null);
-                      setUserFormData({ username: '', first_name: '', last_name: '', email: '', department: '', role: 'EMPLOYEE', password: '' });
-                      setShowUserPassword(false);
-                      setShowAddUserModal(true);
-                    }}
+                    onClick={handleOpenAddUserModal}
                     className="clay-btn clay-btn-primary text-xs flex items-center gap-2"
                   >
                     <Plus size={16} />
@@ -1975,7 +2070,8 @@ export default function Admin() {
                       <th className="py-3 px-3.5">Emp ID</th>
                       <th className="py-3 px-3.5">Name & Email</th>
                       <th className="py-3 px-3.5">Department</th>
-                      <th className="py-3 px-3.5">Role</th>
+                      <th className="py-3 px-3.5">Designation / Position</th>
+                      <th className="py-3 px-3.5">Access Role</th>
                       <th className="py-3 px-3.5">Approval</th>
                       <th className="py-3 px-3.5">Status</th>
                       <th className="py-3 px-3.5 text-right">Actions</th>
@@ -1997,12 +2093,24 @@ export default function Admin() {
                           <p className="font-bold text-slate-900 text-xs sm:text-sm">{u.name}</p>
                           <p className="text-[11px] text-slate-500 font-mono">{u.email}</p>
                         </td>
-                        <td className="py-3.5 px-3.5 text-slate-600 font-medium">{u.department || 'Unassigned'}</td>
+                        <td className="py-3.5 px-3.5 text-slate-700 font-medium text-xs">
+                          {u.department || 'Unassigned'}
+                        </td>
+                        <td className="py-3.5 px-3.5">
+                          {u.designation ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/80">
+                              <Sparkles size={11} className="text-indigo-600" />
+                              <span>{u.designation}</span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 text-xs italic">Unspecified</span>
+                          )}
+                        </td>
                         <td className="py-3.5 px-3.5">
                           <span className={`clay-pill px-2.5 py-0.5 text-[11px] font-bold ${
-                            u.role === 'ADMIN' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-slate-100 text-slate-700'
+                            u.role === 'ADMIN' ? 'bg-purple-50 text-purple-700 border-purple-200 font-bold' : 'bg-slate-100 text-slate-700'
                           }`}>
-                            {u.role}
+                            {u.role === 'ADMIN' ? 'Admin' : 'Employee'}
                           </span>
                         </td>
                         <td className="py-3.5 px-3.5">
@@ -2044,22 +2152,9 @@ export default function Admin() {
                               </>
                             )}
                             <button
-                              onClick={() => {
-                                setEditUserData(u);
-                                setUserFormData({
-                                  username: u.username || '',
-                                  first_name: u.first_name || '',
-                                  last_name: u.last_name || '',
-                                  email: u.email || '',
-                                  department: u.department || '',
-                                  role: u.role || 'EMPLOYEE',
-                                  password: ''
-                                });
-                                setShowUserPassword(false);
-                                setShowAddUserModal(true);
-                              }}
+                              onClick={() => handleOpenEditUserModal(u)}
                               className="clay-btn p-1.5 text-slate-700 hover:text-indigo-600"
-                              title="Edit user"
+                              title="Edit user position & access"
                             >
                               <Edit2 size={13} />
                             </button>
@@ -2422,17 +2517,62 @@ export default function Admin() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {/* 1. Job Function / Designation */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Job Function / Designation
+                </label>
+                <select
+                  value={designationChoice}
+                  onChange={(e) => handleDesignationChoiceChange(e.target.value)}
+                  className="clay-input w-full text-sm cursor-pointer font-medium"
+                >
+                  <option value="Software Developer">Software Developer</option>
+                  <option value="HR">HR</option>
+                  <option value="Data Analyst">Data Analyst</option>
+                  <option value="OTHER">Other — specify designation</option>
+                  <option value="">Unspecified</option>
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Controls automatic task suggestions (Developer, HR, Analyst).
+                </p>
+              </div>
+
+              {/* Custom designation field when Other is selected */}
+              {designationChoice === 'OTHER' && (
+                <div className="animate-in fade-in-50 duration-150">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Custom Designation <span className="text-rose-500 font-bold">* Required</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. DevOps Engineer, QA Tester, Operations..."
+                    value={customDesignation}
+                    onChange={(e) => handleCustomDesignationChange(e.target.value)}
+                    className="clay-input w-full text-sm font-medium"
+                    autoFocus
+                  />
+                </div>
+              )}
+
+              {/* 2. Access Role & Password */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Role</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Access Role
+                  </label>
                   <select
                     value={userFormData.role}
                     onChange={(e) => setUserFormData({ ...userFormData, role: e.target.value })}
-                    className="clay-input w-full text-sm"
+                    className="clay-input w-full text-sm cursor-pointer font-medium"
                   >
                     <option value="EMPLOYEE">Employee</option>
                     <option value="ADMIN">Admin</option>
                   </select>
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Admin grants administrative access; independent of job function.
+                  </p>
                 </div>
                 <div>
                   <label htmlFor="user-form-password" className="block text-xs font-bold text-slate-700 mb-1">

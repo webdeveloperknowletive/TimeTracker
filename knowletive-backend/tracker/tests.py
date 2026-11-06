@@ -2383,38 +2383,52 @@ class ProjectTaskProgressTests(TestCase):
         proj_active = Project.objects.create(name="Active Project", status="IN_PROGRESS")
         proj_old = Project.objects.create(name="Yesterday Project", status="IN_PROGRESS")
 
-        # 1. Task created yesterday, updated & completed today (MUST REMAIN HIDDEN)
-        t_yesterday = ProjectTask.objects.create(
+        # 1. Task created yesterday with NO activity today (MUST REMAIN HIDDEN)
+        t_yesterday_idle = ProjectTask.objects.create(
             project=proj_old,
-            title="Yesterday Task",
+            title="Yesterday Idle Task",
             assigned_to=self.emp1,
-            status="COMPLETED",
-            completed_at=today_dt_utc,
-            completed_by=self.emp1
+            status="IN_PROGRESS"
         )
-        ProjectTask.objects.filter(task_id=t_yesterday.task_id).update(created_at=yesterday_dt_utc)
-        # Even with work session today, must remain hidden because original created_at is yesterday
+        ProjectTask.objects.filter(task_id=t_yesterday_idle.task_id).update(created_at=yesterday_dt_utc)
         WorkSession.objects.create(
-            task=t_yesterday,
+            task=t_yesterday_idle,
             user=self.emp1,
-            date=today_date.isoformat(),
-            start_time=today_dt_utc.isoformat(),
-            end_time=(today_dt_utc + timedelta(seconds=1800)).isoformat(),
+            date=yesterday_date.isoformat(),
+            start_time=yesterday_dt_utc.isoformat(),
+            end_time=(yesterday_dt_utc + timedelta(seconds=1800)).isoformat(),
             duration_seconds=1800,
             status="ENDED"
         )
 
-        # 2. Task created today (MUST APPEAR EXACTLY ONCE)
+        # 2. Task created yesterday but RESUMED / WORKED ON TODAY (MUST APPEAR IN TODAY'S HISTORY)
+        t_yesterday_resumed = ProjectTask.objects.create(
+            project=proj_active,
+            title="Yesterday Resumed Task",
+            assigned_to=self.emp1,
+            status="IN_PROGRESS"
+        )
+        ProjectTask.objects.filter(task_id=t_yesterday_resumed.task_id).update(created_at=yesterday_dt_utc)
+        WorkSession.objects.create(
+            task=t_yesterday_resumed,
+            user=self.emp1,
+            date=today_date.isoformat(),
+            start_time=today_dt_utc.isoformat(),
+            end_time=(today_dt_utc + timedelta(seconds=1200)).isoformat(),
+            duration_seconds=1200,
+            status="ENDED"
+        )
+
+        # 3. Task created today (MUST APPEAR EXACTLY ONCE)
         t_today = ProjectTask.objects.create(
             project=proj_active,
             title="Today Task",
             assigned_to=self.emp1,
             status="IN_PROGRESS"
         )
-        # Set created_at to today_dt_utc
         ProjectTask.objects.filter(task_id=t_today.task_id).update(created_at=today_dt_utc)
 
-        # 3. Another employee's task created today (MUST NEVER APPEAR FOR EMP1)
+        # 4. Another employee's task created today (MUST NEVER APPEAR FOR EMP1)
         t_other = ProjectTask.objects.create(
             project=proj_active,
             title="Other Employee Today Task",
@@ -2429,21 +2443,22 @@ class ProjectTaskProgressTests(TestCase):
 
         task_ids = [t['task_id'] for t in res.data['tasks']]
 
-        # 1. Verification of Exact Visibility Rules
-        self.assertNotIn(t_yesterday.task_id, task_ids, "Yesterday task must remain hidden even if updated/completed today")
+        # 1. Verification of Daily History Rules
+        self.assertNotIn(t_yesterday_idle.task_id, task_ids, "Yesterday task with no activity today must remain excluded")
         self.assertNotIn(t_other.task_id, task_ids, "Other employee's task must never appear")
+        self.assertIn(t_yesterday_resumed.task_id, task_ids, "Older task resumed/worked on today must appear in history")
         self.assertIn(t_today.task_id, task_ids, "Task created today must appear")
         self.assertEqual(task_ids.count(t_today.task_id), 1, "Today's task must appear exactly once")
 
-        # 2. Project visibility: Yesterday Project has no qualifying tasks, so must NOT appear
+        # 2. Project visibility: Yesterday Project has no qualifying tasks today, so must NOT appear
         returned_project_ids = [p['project_id'] for p in res.data['projects']]
         self.assertIn(proj_active.project_id, returned_project_ids)
-        self.assertNotIn(proj_old.project_id, returned_project_ids, "Project without tasks created today must not appear")
+        self.assertNotIn(proj_old.project_id, returned_project_ids, "Project without qualifying activity today must not appear")
 
-        # 3. Summary counters strictly reflect tasks created today
+        # 3. Summary counters reflect qualifying tasks
         summary = res.data['summary']
-        self.assertEqual(summary['total_tasks'], 1)
-        self.assertEqual(summary['in_progress'], 1)
+        self.assertEqual(summary['total_tasks'], 2)
+        self.assertEqual(summary['in_progress'], 2)
         self.assertEqual(summary['completed'], 0)
         self.assertEqual(summary['not_started'], 0)
 
@@ -2451,7 +2466,7 @@ class ProjectTaskProgressTests(TestCase):
         res_all = self.client.get('/api/tasks/my-tasks/?all_history=true')
         self.assertEqual(res_all.status_code, 200)
         all_task_ids = [t['task_id'] for t in res_all.data['tasks']]
-        self.assertIn(t_yesterday.task_id, all_task_ids)
+        self.assertIn(t_yesterday_idle.task_id, all_task_ids)
 
 
 class AdminFilterAuditTests(TestCase):

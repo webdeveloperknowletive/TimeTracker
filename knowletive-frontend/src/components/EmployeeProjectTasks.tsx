@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
-  Play, Pause, Square, CheckCircle2, MessageSquare, 
+  Pause, CheckCircle2, MessageSquare, 
   History, Calendar, AlertTriangle, RefreshCw,
-  Search, Check, X, ChevronDown, ChevronUp, Lock, RotateCcw
+  Search, Check, X, ChevronDown, ChevronUp, Lock
 } from 'lucide-react';
 import api from '../lib/api';
 import { formatDigitalDuration, formatDisplayDate } from '../utils/formatters';
@@ -51,6 +51,7 @@ interface TaskItem {
   active_session: {
     session_id: string;
     status: string;
+    date?: string;
     start_time: string;
     current_segment_start: string | null;
     elapsed_seconds: number;
@@ -93,10 +94,6 @@ export default function EmployeeProjectTasks({ onTimerSync }: EmployeeProjectTas
   const [showCompleteConfirmModal, setShowCompleteConfirmModal] = useState<boolean>(false);
   const [completeTargetTaskId, setCompleteTargetTaskId] = useState<string>('');
 
-  // Reopen Task Modal (Reason Required)
-  const [showReopenTaskModal, setShowReopenTaskModal] = useState<boolean>(false);
-  const [reopenTaskTargetId, setReopenTaskTargetId] = useState<string>('');
-  const [reopenTaskReason, setReopenTaskReason] = useState<string>('');
 
   // Request sequencing to clear stale cached results and prevent previous responses from repopulating
   const reqSeqRef = useRef<number>(0);
@@ -117,17 +114,17 @@ export default function EmployeeProjectTasks({ onTimerSync }: EmployeeProjectTas
 
   const [activeDateStr, setActiveDateStr] = useState<string>(getIstTodayDateString());
 
-  // Load employee tasks for today
-  const loadMyTasks = async () => {
+  // Load employee tasks for given or selected date (Asia/Kolkata)
+  const loadMyTasks = async (targetDate?: string) => {
     const curSeq = ++reqSeqRef.current;
+    const dateToFetch = targetDate || activeDateStr || getIstTodayDateString();
     setLoading(true);
     setErrorMsg('');
     try {
-      const todayIst = getIstTodayDateString();
-      const res = await api.get(`/tasks/my-tasks/?date=${todayIst}`);
+      const res = await api.get(`/tasks/my-tasks/?date=${dateToFetch}`);
       if (curSeq !== reqSeqRef.current) return; // Prevent race conditions & drop stale responses
       setTasks(res.data.tasks || []);
-      setActiveDateStr(todayIst);
+      setActiveDateStr(dateToFetch);
     } catch (err: any) {
       if (curSeq !== reqSeqRef.current) return;
       setErrorMsg(err.response?.data?.error || 'Failed to load assigned tasks.');
@@ -173,32 +170,68 @@ export default function EmployeeProjectTasks({ onTimerSync }: EmployeeProjectTas
     return () => clearInterval(interval);
   }, [tasks]);
 
-  // Exact visibility rule on frontend: Show only tasks originally created today in Asia/Kolkata
-  const isTaskCreatedTodayIst = (t: TaskItem, targetDate: string) => {
-    if (!t.created_at) return false;
-    try {
-      const d = new Date(t.created_at);
-      if (isNaN(d.getTime())) return false;
-      const istStr = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Asia/Kolkata',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      }).format(d);
-      return istStr === targetDate;
-    } catch {
-      return false;
+  // Daily History Rule on frontend: Include tasks that have:
+  // 1. Work sessions overlapping the selected date (regardless of creation date)
+  // 2. Active session on the selected date
+  // 3. Time worked today > 0
+  // 4. Completed on the selected date
+  // 5. Created on the selected date
+  // Exclude previous-date tasks with no activity on this date.
+  const isTaskQualifyingForDate = (t: TaskItem, targetDate: string) => {
+    if (t.work_sessions && t.work_sessions.length > 0) {
+      if (t.work_sessions.some((s) => s.date === targetDate)) return true;
     }
+    if (t.active_session) {
+      if (t.active_session.date === targetDate) return true;
+      if (t.active_session.start_time) {
+        try {
+          const d = new Date(t.active_session.start_time);
+          const istStr = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Kolkata',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+          }).format(d);
+          if (istStr === targetDate) return true;
+        } catch {}
+      }
+    }
+    if ((t.today_duration_seconds ?? 0) > 0) return true;
+    if (t.completed_at) {
+      try {
+        const d = new Date(t.completed_at);
+        const istStr = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Kolkata',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        }).format(d);
+        if (istStr === targetDate) return true;
+      } catch {}
+    }
+    if (t.created_at) {
+      try {
+        const d = new Date(t.created_at);
+        const istStr = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Kolkata',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        }).format(d);
+        if (istStr === targetDate) return true;
+      } catch {}
+    }
+    return false;
   };
 
-  // Qualifying tasks: Deduplicated by stable ID, strictly created today (Asia/Kolkata)
+  // Qualifying tasks: Deduplicated by stable ID
   const qualifyingTasks = useMemo(() => {
     const seen = new Set<string>();
     const list: TaskItem[] = [];
     for (const t of tasks) {
       if (seen.has(t.task_id)) continue;
       seen.add(t.task_id);
-      if (isTaskCreatedTodayIst(t, activeDateStr)) {
+      if (isTaskQualifyingForDate(t, activeDateStr)) {
         list.push(t);
       }
     }
@@ -239,12 +272,14 @@ export default function EmployeeProjectTasks({ onTimerSync }: EmployeeProjectTas
     });
   }, [qualifyingTasks, searchQuery, filterProject, filterStatus]);
 
-  // Today Summary Counters
+  // Today Summary Counters: accurately calculating session overlap and distinct counts
   const todayMetrics = useMemo(() => {
     let totalWorked = 0;
     let notStarted = 0;
     let inProgress = 0;
     let completed = 0;
+    let tasksWorked = 0;
+    let tasksCreated = 0;
 
     qualifyingTasks.forEach((t) => {
       if (t.status === 'COMPLETED') completed++;
@@ -255,65 +290,34 @@ export default function EmployeeProjectTasks({ onTimerSync }: EmployeeProjectTas
       const liveSegSec = isRunning && t.active_session?.current_segment_start
         ? Math.max(0, Math.floor((Date.now() - new Date(t.active_session.current_segment_start).getTime()) / 1000))
         : 0;
-      totalWorked += (t.today_duration_seconds ?? 0) + liveSegSec;
+      const tSec = (t.today_duration_seconds ?? 0) + liveSegSec;
+      totalWorked += tSec;
+      if (tSec > 0 || (t.work_sessions && t.work_sessions.length > 0)) {
+        tasksWorked++;
+      }
+      try {
+        if (t.created_at) {
+          const istStr = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'Asia/Kolkata',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+          }).format(new Date(t.created_at));
+          if (istStr === activeDateStr) tasksCreated++;
+        }
+      } catch {}
     });
 
     return {
       total: qualifyingTasks.length,
+      tasksWorked,
+      tasksCreated,
       notStarted,
       inProgress,
       completed,
       totalWorkedSeconds: totalWorked
     };
-  }, [qualifyingTasks, tick]);
-
-  // Action: Start Work
-  const handleStartWork = async (task: TaskItem) => {
-    setActionLoading(task.task_id);
-    setErrorMsg('');
-    try {
-      await api.post(`/project-tasks/${task.task_id}/start/`);
-      setSuccessMsg(`Started work on "${task.title}".`);
-      await loadMyTasks();
-      if (onTimerSync) onTimerSync();
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.error || 'Failed to start task.');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  // Action: Pause Work
-  const handlePauseWork = async (task: TaskItem) => {
-    setActionLoading(task.task_id);
-    setErrorMsg('');
-    try {
-      await api.post(`/project-tasks/${task.task_id}/pause/`);
-      setSuccessMsg(`Paused timer for "${task.title}". Task remains In Progress.`);
-      await loadMyTasks();
-      if (onTimerSync) onTimerSync();
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.error || 'Failed to pause task.');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  // Action: Stop Work
-  const handleStopWork = async (task: TaskItem) => {
-    setActionLoading(task.task_id);
-    setErrorMsg('');
-    try {
-      await api.post(`/project-tasks/${task.task_id}/stop/`);
-      setSuccessMsg(`Stopped timer session. Task remains In Progress.`);
-      await loadMyTasks();
-      if (onTimerSync) onTimerSync();
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.error || 'Failed to stop timer.');
-    } finally {
-      setActionLoading(null);
-    }
-  };
+  }, [qualifyingTasks, tick, activeDateStr]);
 
   // Action: Add Progress Note
   const handleAddNoteSubmit = async (e: React.FormEvent) => {
@@ -354,31 +358,6 @@ export default function EmployeeProjectTasks({ onTimerSync }: EmployeeProjectTas
     }
   };
 
-  // Action: Reopen Task with Mandatory Reason
-  const handleReopenTaskSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!reopenTaskReason.trim()) {
-      setErrorMsg('A mandatory reason is required to reopen this task.');
-      return;
-    }
-    setActionLoading(reopenTaskTargetId);
-    setErrorMsg('');
-    try {
-      await api.post(`/project-tasks/${reopenTaskTargetId}/reopen/`, {
-        reason: reopenTaskReason.trim()
-      });
-      setSuccessMsg('Task reopened successfully. You may now resume logging work.');
-      setShowReopenTaskModal(false);
-      setReopenTaskReason('');
-      await loadMyTasks();
-      if (onTimerSync) onTimerSync();
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.error || 'Failed to reopen task.');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
   return (
     <div className="space-y-5">
       {/* Notifications */}
@@ -411,16 +390,42 @@ export default function EmployeeProjectTasks({ onTimerSync }: EmployeeProjectTas
         <div>
           <h3 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
             <Calendar size={18} className="text-indigo-600" />
-            <span>My Projects & Tasks</span>
+            <span>Task History & Daily Work Log</span>
           </h3>
           <p className="text-xs text-slate-500 font-medium">
-            Today's assigned tasks (created on {formatDisplayDate(activeDateStr)})
+            Every task worked on {formatDisplayDate(activeDateStr)} in Asia/Kolkata (including stopped, paused, completed, and running)
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <label className="text-xs font-bold text-slate-600">Date:</label>
+          <input
+            type="date"
+            value={activeDateStr}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val) {
+                setActiveDateStr(val);
+                loadMyTasks(val);
+              }
+            }}
+            className="clay-input text-xs font-mono font-medium min-h-[38px]"
+          />
+          {activeDateStr !== getIstTodayDateString() && (
+            <button
+              onClick={() => {
+                const todayIst = getIstTodayDateString();
+                setActiveDateStr(todayIst);
+                loadMyTasks(todayIst);
+              }}
+              className="clay-btn clay-btn-secondary px-3 py-1.5 text-xs font-bold rounded-xl"
+              title="Return to Today"
+            >
+              Today
+            </button>
+          )}
           <button
-            onClick={loadMyTasks}
+            onClick={() => loadMyTasks(activeDateStr)}
             className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition"
             title="Refresh Tasks"
           >
@@ -429,15 +434,23 @@ export default function EmployeeProjectTasks({ onTimerSync }: EmployeeProjectTas
         </div>
       </div>
 
-      {/* Today Task Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
+      {/* Task Summary Counters (Compact, Clean, Distinct) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div 
           onClick={() => setFilterStatus('ALL')}
           className={`clay-card-flat p-3.5 space-y-1 cursor-pointer transition ${filterStatus === 'ALL' ? 'ring-2 ring-indigo-500/30' : ''}`}
         >
-          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Tasks Today</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Total Tasks</span>
           <div className="text-xl sm:text-2xl font-black text-slate-900">{todayMetrics.total}</div>
-          <span className="text-[11px] text-slate-400 font-medium">Created today</span>
+          <span className="text-[11px] text-slate-400 font-medium">Qualifying tasks</span>
+        </div>
+        <div 
+          onClick={() => setFilterStatus('ALL')}
+          className="clay-card-flat p-3.5 space-y-1 cursor-pointer transition"
+        >
+          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">Worked Today</span>
+          <div className="text-xl sm:text-2xl font-black text-indigo-600">{todayMetrics.tasksWorked}</div>
+          <span className="text-[11px] text-slate-400 font-medium">Logged time today</span>
         </div>
         <div 
           onClick={() => setFilterStatus('IN_PROGRESS')}
@@ -463,12 +476,12 @@ export default function EmployeeProjectTasks({ onTimerSync }: EmployeeProjectTas
           <div className="text-xl sm:text-2xl font-black text-emerald-600">{todayMetrics.completed}</div>
           <span className="text-[11px] text-slate-400 font-medium">Finished today</span>
         </div>
-        <div className="clay-card-flat p-3.5 space-y-1 col-span-2 sm:col-span-4 lg:col-span-1">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">Time Worked Today</span>
-          <div className="text-xl sm:text-2xl font-black font-mono text-indigo-700">
+        <div className="clay-card-flat p-3.5 space-y-1 col-span-2 sm:col-span-1">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">Time Worked</span>
+          <div className="text-xl sm:text-2xl font-black font-mono text-indigo-700 truncate">
             {formatDigitalDuration(todayMetrics.totalWorkedSeconds)}
           </div>
-          <span className="text-[11px] text-slate-400 font-medium">{formatDisplayDate(activeDateStr)} (IST)</span>
+          <span className="text-[11px] text-slate-400 font-medium truncate">{formatDisplayDate(activeDateStr)}</span>
         </div>
       </div>
 
@@ -552,7 +565,7 @@ export default function EmployeeProjectTasks({ onTimerSync }: EmployeeProjectTas
             <p className="text-xs text-slate-400 mt-1">
               {searchQuery || filterProject !== 'ALL' || filterStatus !== 'ALL'
                 ? 'Try adjusting your search or filters.'
-                : `Tasks created today in Asia/Kolkata (${formatDisplayDate(activeDateStr)}) will appear here.`}
+                : `Tasks worked on or created for ${formatDisplayDate(activeDateStr)} in Asia/Kolkata will appear here.`}
             </p>
           </div>
         ) : (
@@ -679,74 +692,12 @@ export default function EmployeeProjectTasks({ onTimerSync }: EmployeeProjectTas
                     <div className="flex items-center gap-2 flex-wrap">
                       {/* Timer controls */}
                       {isCompleted ? (
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-500 text-xs font-semibold">
-                            <Lock size={13} />
-                            <span>Completed</span>
-                          </div>
-                          <button
-                            onClick={() => {
-                              setReopenTaskTargetId(task.task_id);
-                              setReopenTaskReason('');
-                              setShowReopenTaskModal(true);
-                            }}
-                            className="px-3 py-1.5 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs flex items-center gap-1.5 transition"
-                          >
-                            <RotateCcw size={13} />
-                            <span>Reopen Task</span>
-                          </button>
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-500 text-xs font-semibold">
+                          <Lock size={13} />
+                          <span>Completed</span>
                         </div>
                       ) : (
                         <>
-                          {isRunning ? (
-                            <>
-                              <button
-                                onClick={() => handlePauseWork(task)}
-                                disabled={actionLoading === task.task_id}
-                                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition"
-                              >
-                                <Pause size={13} />
-                                <span>Pause</span>
-                              </button>
-                              <button
-                                onClick={() => handleStopWork(task)}
-                                disabled={actionLoading === task.task_id}
-                                className="px-3 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition"
-                              >
-                                <Square size={13} />
-                                <span>Stop</span>
-                              </button>
-                            </>
-                          ) : isPaused ? (
-                            <>
-                              <button
-                                onClick={() => handleStartWork(task)}
-                                disabled={actionLoading === task.task_id}
-                                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition"
-                              >
-                                <Play size={13} />
-                                <span>Resume</span>
-                              </button>
-                              <button
-                                onClick={() => handleStopWork(task)}
-                                disabled={actionLoading === task.task_id}
-                                className="px-3 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition"
-                              >
-                                <Square size={13} />
-                                <span>Stop</span>
-                              </button>
-                            </>
-                          ) : (
-                            <button
-                              onClick={() => handleStartWork(task)}
-                              disabled={actionLoading === task.task_id}
-                              className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition"
-                            >
-                              <Play size={13} />
-                              <span>{task.status === 'NOT_STARTED' ? 'Start Work' : 'Resume Work'}</span>
-                            </button>
-                          )}
-
                           {/* Progress Note Button */}
                           <button
                             onClick={() => {
@@ -940,7 +891,7 @@ export default function EmployeeProjectTasks({ onTimerSync }: EmployeeProjectTas
               Are you sure you want to mark this task as <strong>Completed</strong>?
               <br /><br />
               Any active work session will be closed automatically, and your explicit completion timestamp will be recorded.
-              Additional time tracking will be locked unless reopened with a valid reason.
+              Additional time tracking for this task will be concluded and locked.
             </p>
 
             <div className="flex items-center justify-end gap-2 pt-2">
@@ -954,68 +905,16 @@ export default function EmployeeProjectTasks({ onTimerSync }: EmployeeProjectTas
               <button
                 type="button"
                 onClick={handleConfirmComplete}
-                className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold shadow-sm hover:bg-emerald-700 transition"
+                disabled={!!actionLoading}
+                className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold shadow-sm hover:bg-emerald-700 transition disabled:opacity-50"
               >
-                Yes, Mark Completed
+                {actionLoading ? "Processing..." : "Yes, Mark Completed"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL 3: REOPEN TASK (REASON REQUIRED) */}
-      {showReopenTaskModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4 animate-in fade-in duration-200">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                <RotateCcw size={16} className="text-amber-600" />
-                Reopen Task
-              </h3>
-              <button onClick={() => setShowReopenTaskModal(false)} className="p-1 text-slate-400 hover:text-slate-700">
-                <X size={16} />
-              </button>
-            </div>
-
-            <form onSubmit={handleReopenTaskSubmit} className="space-y-4">
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Reopening this task will reset its status to <strong>In Progress</strong> and allow you to resume logging work.
-                A mandatory reason is required to retain status-change history.
-              </p>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Reason for Reopening *
-                </label>
-                <textarea
-                  required
-                  rows={3}
-                  placeholder="e.g. Additional revisions or bug fixes required..."
-                  value={reopenTaskReason}
-                  onChange={(e) => setReopenTaskReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowReopenTaskModal(false)}
-                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-xl bg-amber-600 text-white text-xs font-bold shadow-sm hover:bg-amber-700 transition"
-                >
-                  Confirm Reopen
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

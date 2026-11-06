@@ -50,6 +50,7 @@ class User(AbstractUser):
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='EMPLOYEE')
     employee_id = models.CharField(max_length=30, blank=True, null=True, unique=True)
     department = models.CharField(max_length=100, blank=True)
+    designation = models.CharField(max_length=100, blank=True, default='')
     employment_status = models.CharField(max_length=50, default='Active')
     approval_status = models.CharField(max_length=20, choices=APPROVAL_CHOICES, default='APPROVED')
 
@@ -293,3 +294,28 @@ class SystemSettings(models.Model):
     work_start_time = models.CharField(max_length=10, default='10:00')
     work_end_time = models.CharField(max_length=10, default='19:00')
     timezone = models.CharField(max_length=50, default='Asia/Kolkata')
+
+
+def generate_eps_id():
+    return f"EPS-{uuid.uuid4().hex[:12].upper()}"
+
+
+class EmployeeProjectStatus(models.Model):
+    STATUS_CHOICES = (
+        ('JUST_STARTED', 'Just Started'),
+        ('IN_PROGRESS', 'In Progress'),
+        ('COMPLETED', 'Completed'),
+    )
+    status_id = models.CharField(max_length=50, primary_key=True, default=generate_eps_id)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='project_contributions')
+    project = models.ForeignKey(Project, on_delete=models.SET_NULL, null=True, blank=True, related_name='employee_contributions_statuses')
+    project_name = models.CharField(max_length=200, db_index=True)
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='JUST_STARTED')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user', 'project_name')
+
+    def __str__(self):
+        return f"{self.user.username} -> {self.project_name}: {self.status}"

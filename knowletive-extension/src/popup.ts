@@ -205,6 +205,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const displayName = user.name || user.username || user.email || 'Employee';
     if (userName) userName.textContent = displayName;
     if (empAvatar) empAvatar.textContent = (displayName[0] || 'E').toUpperCase();
+    const userDesig = document.getElementById('user-designation-badge');
+    if (userDesig) {
+      userDesig.textContent = user.designation || user.department || '';
+    }
 
     fetchStatus();
 
@@ -397,7 +401,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (token) {
         await fetchAPI('/auth/logout/', { method: 'POST' });
       }
-    } catch {}
+    } catch (err: any) {
+      if (actionError) {
+        showError(actionError, err.message || 'Failed to close active server sessions on sign out.');
+      }
+    }
     // Clear all cached role data and session tokens completely
     await chrome.storage.local.clear();
     showAuthView();

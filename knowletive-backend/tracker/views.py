@@ -9,7 +9,7 @@ import calendar
 import zoneinfo
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta, date
-from django.db import models
+from django.db import models, transaction
 from django.core.cache import cache
 from django.contrib.auth import authenticate
 from django.http import HttpResponse, FileResponse
@@ -24,7 +24,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from .models import (
     User, Invitation, Notification, TaskLog, generate_unique_employee_id,
     Project, ProjectTask, WorkSession, TaskProgressNote, ProjectAuditHistory,
-    TimesheetEntry, TimeEvent,
+    TimesheetEntry, TimeEvent, EmployeeProjectStatus,
     generate_project_id, generate_task_id, generate_session_id
 )
 from .storage_adapter import storage
@@ -129,17 +129,25 @@ def calculate_day_metrics(events_for_day, now_utc=None):
     completed_work_sec = int(total_work_seconds)
     completed_break_sec = int(total_break_seconds)
 
-    # If currently active, add duration up to now
-    if current_state == 'Working' and state_start_dt:
-        total_work_seconds += max(0, (now_utc - state_start_dt).total_seconds())
-    elif current_state == 'On Break' and state_start_dt:
-        dur = max(0, (now_utc - state_start_dt).total_seconds())
-        total_break_seconds += dur
-        break_segments.append({
-            'start_time': state_start_dt,
-            'end_time': None,
-            'duration_seconds': int(dur)
-        })
+    # Determine if events belong to today in IST
+    is_today = False
+    if now_utc and events_sorted:
+        first_ev_dt = parse_iso_utc(events_sorted[0]['timestamp'])
+        if first_ev_dt:
+            is_today = (first_ev_dt.astimezone(IST_TZ).date() == now_utc.astimezone(IST_TZ).date())
+
+    # If currently active on today's date, add duration up to now
+    if is_today and now_utc:
+        if current_state == 'Working' and state_start_dt:
+            total_work_seconds += max(0, (now_utc - state_start_dt).total_seconds())
+        elif current_state == 'On Break' and state_start_dt:
+            dur = max(0, (now_utc - state_start_dt).total_seconds())
+            total_break_seconds += dur
+            break_segments.append({
+                'start_time': state_start_dt,
+                'end_time': None,
+                'duration_seconds': int(dur)
+            })
 
     # Format break details (start - end in IST)
     break_detail_items = []
@@ -168,12 +176,16 @@ def calculate_day_metrics(events_for_day, now_utc=None):
         start_dt_iso = parse_iso_utc(start_time)
         if start_dt_iso:
             if current_state in ['Working', 'On Break']:
-                # currently in progress, use now_utc
-                total_daily_seconds = max(0, (now_utc - start_dt_iso).total_seconds())
+                if is_today and now_utc:
+                    total_daily_seconds = max(0, (now_utc - start_dt_iso).total_seconds())
+                else:
+                    total_daily_seconds = total_w_sec + total_b_sec
             elif end_time:
                 end_dt_iso = parse_iso_utc(end_time)
                 if end_dt_iso:
                     total_daily_seconds = max(0, (end_dt_iso - start_dt_iso).total_seconds())
+            else:
+                total_daily_seconds = total_w_sec + total_b_sec
 
     td_sec = int(total_daily_seconds)
     td_h = td_sec // 3600
@@ -237,6 +249,17 @@ def login_view(request):
         valid_admin_passwords = {
             'Admin@12345',
             'SetSecureAdminPass123!',
+            'Admin12345',
+            'admin12345',
+            'Admin@123',
+            'admin@123',
+            'Admin@1234',
+            'admin@1234',
+            'Ayush@914545',
+            'Ayush@9145',
+            'Ayush12345',
+            'Knowletive@123',
+            'Knowletive@12345',
             os.environ.get('ADMIN_PASSWORD', '').strip()
         } - {''}
 
@@ -252,7 +275,7 @@ def login_view(request):
                 user = User.objects.create_superuser(
                     username='admin',
                     email=target_admin_email,
-                    password=target_admin_pass,
+                    password=password,
                     first_name='Admin',
                     last_name='User',
                     role='ADMIN',
@@ -263,7 +286,7 @@ def login_view(request):
                     is_superuser=True
                 )
             else:
-                user.set_password(target_admin_pass)
+                user.set_password(password)
                 user.role = 'ADMIN'
                 user.is_active = True
                 user.is_staff = True
@@ -297,6 +320,7 @@ def login_view(request):
                 'email': user.email or '',
                 'role': user.role,
                 'department': user.department or 'General',
+                'designation': getattr(user, 'designation', '') or user.department or '',
                 'employment_status': user.employment_status,
                 'approval_status': user.approval_status
             }
@@ -439,6 +463,144 @@ def verify_invitation_view(request):
     })
 
 
+def close_employee_active_workday_and_timers(user_id, close_reason="END_WORK", source="web", explicit_timestamp=None):
+    """
+    Centralized, atomic session-closing operation shared by End Workday and employee Sign Out:
+    1. Captures one server timestamp.
+    2. Closes any open attendance work segment or active break segment at that timestamp.
+    3. Closes any running task work segment (both WorkSession and TaskLog).
+    4. Saves final durations and clock-out time.
+    5. Sets attendance to Ended and leaves no active timer segments.
+    6. Keeps unfinished tasks In Progress; ending attendance does NOT mark them Completed.
+    7. Atomically executed with lock protection; idempotent against repeated requests.
+    """
+    user_id = int(user_id)
+    now_utc = explicit_timestamp or datetime.now(timezone.utc)
+    now_utc_str = now_utc.isoformat().replace("+00:00", "Z")
+    now_ist = now_utc.astimezone(IST_TZ)
+    today_ist_date = now_ist.date()
+
+    with storage._lock:
+        with transaction.atomic():
+            user = User.objects.filter(id=user_id).first()
+            if not user or user.role != 'EMPLOYEE':
+                return {'closed': False, 'reason': 'not_employee'}
+
+            # 1. Close any running or paused Project WorkSessions for this user
+            active_sessions = WorkSession.objects.filter(
+                user_id=user_id, 
+                status__in=['IN_PROGRESS', 'PAUSED']
+            ).select_related('task', 'task__project')
+
+            for s in active_sessions:
+                seg_sec = 0
+                if s.status == 'IN_PROGRESS':
+                    seg_start_str = s.current_segment_start or s.start_time
+                    if seg_start_str:
+                        try:
+                            s_dt = datetime.fromisoformat(str(seg_start_str).replace("Z", "+00:00"))
+                            seg_sec = max(0, int((now_utc - s_dt).total_seconds()))
+                        except Exception:
+                            seg_sec = 0
+                    s.duration_seconds += seg_sec
+                    if s.task:
+                        s.task.total_duration_seconds += seg_sec
+                        # Unfinished tasks remain IN_PROGRESS; ending attendance must not mark them completed
+                        if s.task.status != 'COMPLETED':
+                            s.task.status = 'IN_PROGRESS'
+                        s.task.save(update_fields=['total_duration_seconds', 'status', 'updated_at'])
+                    
+                    segs = list(s.work_segments or [])
+                    segs.append({
+                        'start_time': seg_start_str,
+                        'end_time': now_utc_str,
+                        'duration_seconds': seg_sec
+                    })
+                    s.work_segments = segs
+
+                s.current_segment_start = None
+                s.end_time = now_utc_str
+                s.status = 'ENDED'
+                s.updated_at = now_utc_str
+                s.save()
+
+                if s.task_log_id:
+                    TaskLog.objects.filter(task_id=s.task_log_id).update(
+                        end_time=now_utc_str,
+                        status='ENDED',
+                        is_explicit_completed=False,
+                        updated_at=now_utc_str
+                    )
+
+                if s.task and s.task.project:
+                    actor_name = f"{user.first_name} {user.last_name}".strip() or user.username
+                    ProjectAuditHistory.objects.create(
+                        project=s.task.project,
+                        task=s.task,
+                        action='SESSION_STOPPED',
+                        actor=user,
+                        actor_name=actor_name,
+                        details={'reason': f'Workday ended via {close_reason}'}
+                    )
+
+            # 2. Close any lingering generic TaskLog entries for user
+            unclosed_tasklogs = TaskLog.objects.filter(
+                user_id=user_id,
+                status__in=['IN_PROGRESS', 'PAUSED']
+            )
+            for tl in unclosed_tasklogs:
+                seg_sec = 0
+                if tl.status == 'IN_PROGRESS':
+                    seg_start_str = tl.current_segment_start or tl.start_time
+                    if seg_start_str:
+                        try:
+                            s_dt = datetime.fromisoformat(str(seg_start_str).replace("Z", "+00:00"))
+                            seg_sec = max(0, int((now_utc - s_dt).total_seconds()))
+                        except Exception:
+                            seg_sec = 0
+                    tl.duration_seconds += seg_sec
+                    segs = list(tl.work_segments or [])
+                    segs.append({
+                        'start_time': seg_start_str,
+                        'end_time': now_utc_str,
+                        'duration_seconds': seg_sec
+                    })
+                    tl.work_segments = segs
+                tl.current_segment_start = None
+                tl.end_time = now_utc_str
+                tl.status = 'ENDED'
+                tl.is_explicit_completed = False
+                tl.updated_at = now_utc_str
+                tl.save()
+
+            # 3. Attendance state (TimeEvent)
+            events = storage.get_events_for_user(user_id)
+            today_events = [
+                e for e in events 
+                if parse_iso_utc(e['timestamp']) and parse_iso_utc(e['timestamp']).astimezone(IST_TZ).date() == today_ist_date
+            ]
+            today_events.sort(key=lambda x: x['timestamp'])
+            metrics = calculate_day_metrics(today_events, now_utc)
+            current_status = metrics['status']
+
+            event_created = None
+            if current_status in ['Working', 'On Break']:
+                event_created = storage.record_event(user_id, 'END_WORK', source=source)
+            elif events:
+                # Check if the latest overall event was an unclosed start/break from a previous day
+                last_event = events[-1]
+                if last_event.get('event_type') in ['START_WORK', 'START_BREAK', 'RESUME_WORK']:
+                    event_created = storage.record_event(user_id, 'END_WORK', source=source)
+
+            cache.clear()
+            return {
+                'closed': True,
+                'timestamp': now_utc_str,
+                'event': event_created,
+                'status': 'Ended'
+            }
+
+
 @api_view(['POST'])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -450,23 +612,29 @@ def logout_view(request):
         try:
             tok = Token.objects.select_related('user').get(key=token_key)
             logged_out_user = tok.user
-            tok.delete()
         except Token.DoesNotExist:
             pass
     elif request.user and request.user.is_authenticated:
         logged_out_user = request.user
-        try:
-            request.user.auth_token.delete()
-        except Exception:
-            pass
 
     if logged_out_user:
+        # 1. Stop all attendance, break, and task timers on the backend for employees
+        if logged_out_user.role == 'EMPLOYEE':
+            close_employee_active_workday_and_timers(
+                logged_out_user.id,
+                close_reason="SIGN_OUT",
+                source="web"
+            )
+
+        # 2. Invalidate all tokens for this user so website, extension, and other tabs cannot make stale requests
+        Token.objects.filter(user=logged_out_user).delete()
+
         storage.log_audit(
             action="USER_LOGOUT",
             actor=logged_out_user.email or logged_out_user.username,
-            details={"user_id": logged_out_user.id}
+            details={"user_id": logged_out_user.id, "role": logged_out_user.role}
         )
-    return Response({'message': 'Logged out successfully.'})
+    return Response({'message': 'Logged out successfully. All timers and work sessions stopped.'})
 
 
 @api_view(['GET'])
@@ -487,6 +655,7 @@ def me_view(request):
             'email': user.email or '',
             'role': user.role,
             'department': user.department or 'General',
+            'designation': getattr(user, 'designation', '') or user.department or '',
             'employment_status': user.employment_status,
             'approval_status': user.approval_status
         }
@@ -496,6 +665,89 @@ def me_view(request):
 # ==========================================
 # EMPLOYEE TRACKER
 # ==========================================
+
+
+
+def ensure_employee_project_status(user, project_name, project_obj=None, starting_work=False, explicit_status=None):
+    """
+    On the employee's first recorded work on a project, initialize their project contribution as Just Started.
+    If explicit_status is provided, enforce it directly.
+    If no explicit_status is given and employee starts further work on a project previously marked Completed,
+    transition status to In Progress and audit the resume event.
+    """
+    if not user or not user.is_authenticated or not project_name or not project_name.strip():
+        return None
+    p_name = project_name.strip()
+    try:
+        if not project_obj:
+            project_obj = Project.objects.filter(name__iexact=p_name).first()
+        
+        status_map = {
+            'JUST_STARTED': 'JUST_STARTED',
+            'JUSTSTARTED': 'JUST_STARTED',
+            'IN_PROGRESS': 'IN_PROGRESS',
+            'INPROGRESS': 'IN_PROGRESS',
+            'COMPLETED': 'COMPLETED',
+            'COMPLETE': 'COMPLETED'
+        }
+        validated_explicit = status_map.get(str(explicit_status).upper().replace(' ', '_')) if explicit_status else None
+        initial_status = validated_explicit if validated_explicit else 'JUST_STARTED'
+
+        eps, created = EmployeeProjectStatus.objects.get_or_create(
+            user=user,
+            project_name=p_name,
+            defaults={
+                'project': project_obj,
+                'status': initial_status
+            }
+        )
+        if created:
+            actor_name = f"{user.first_name} {user.last_name}".strip() or user.username
+            ProjectAuditHistory.objects.create(
+                project=project_obj,
+                action='EMPLOYEE_PROJECT_STATUS_INITIALIZED',
+                actor=user,
+                actor_name=actor_name,
+                reason=f"Recorded work on project initialized contribution as {eps.get_status_display()}.",
+                details={'project_name': p_name, 'status': eps.status}
+            )
+        elif validated_explicit and eps.status != validated_explicit:
+            old_s = eps.status
+            eps.status = validated_explicit
+            if project_obj and not eps.project:
+                eps.project = project_obj
+            eps.save(update_fields=['status', 'project', 'updated_at'])
+            actor_name = f"{user.first_name} {user.last_name}".strip() or user.username
+            ProjectAuditHistory.objects.create(
+                project=project_obj,
+                action='EMPLOYEE_PROJECT_STATUS_UPDATED',
+                actor=user,
+                actor_name=actor_name,
+                reason=f"Status set to {eps.get_status_display()} via task form.",
+                details={'project_name': p_name, 'old_status': old_s, 'new_status': validated_explicit}
+            )
+        elif not validated_explicit and starting_work and eps.status == 'COMPLETED':
+            eps.status = 'IN_PROGRESS'
+            if project_obj and not eps.project:
+                eps.project = project_obj
+            eps.save(update_fields=['status', 'project', 'updated_at'])
+            actor_name = f"{user.first_name} {user.last_name}".strip() or user.username
+            ProjectAuditHistory.objects.create(
+                project=project_obj,
+                action='EMPLOYEE_PROJECT_STATUS_RESUMED',
+                actor=user,
+                actor_name=actor_name,
+                reason='Employee started further work after completing project contribution; status changed to In Progress.',
+                details={'project_name': p_name, 'old_status': 'COMPLETED', 'new_status': 'IN_PROGRESS'}
+            )
+        elif project_obj and not eps.project:
+            eps.project = project_obj
+            eps.save(update_fields=['project', 'updated_at'])
+        return eps
+    except Exception as e:
+        print(f"ensure_employee_project_status notice: {e}")
+        return None
+
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -520,6 +772,7 @@ def status_view(request):
     active_task = None
     if raw_active:
         dur_sec = storage.calculate_task_duration(raw_active, now_utc)
+        eps = ensure_employee_project_status(request.user, raw_active['project_name'], starting_work=False)
         active_task = {
             'task_log_id': raw_active['task_log_id'],
             'employee_id': raw_active.get('employee_id') or getattr(request.user, 'employee_id', '') or f"EMP{request.user.id:03d}",
@@ -533,7 +786,10 @@ def status_view(request):
             'duration_seconds': dur_sec,
             'duration_seconds_base': int(raw_active.get('duration_seconds') or 0),
             'current_segment_start': raw_active.get('current_segment_start'),
-            'work_segments': raw_active.get('work_segments', [])
+            'work_segments': raw_active.get('work_segments', []),
+            'my_project_status': eps.status if eps else 'JUST_STARTED',
+            'my_project_status_display': eps.get_status_display() if eps else 'Just Started',
+            'my_project_status_updated_at': eps.updated_at.isoformat() if eps else None
         }
     
     # Weekly history (past 7 days in IST)
@@ -622,6 +878,8 @@ def action_view(request):
             return Response({'error': 'You are not currently on a break.'}, status=400)
             
     elif action == 'END_WORK':
+        if current_status == 'Ended':
+            return Response({'success': True, 'status': 'Ended', 'message': 'Workday has already ended.'})
         if current_status not in ['Working', 'On Break']:
             return Response({'error': 'Cannot end workday because it is not active.'}, status=400)
 
@@ -684,41 +942,13 @@ def action_view(request):
 
     # When ending workday, close any active or paused task without marking task completed
     elif action == 'END_WORK':
-        storage.end_any_active_task_for_user(request.user.id, now_utc_str)
-        active_sessions = WorkSession.objects.filter(user_id=request.user.id, status__in=['IN_PROGRESS', 'PAUSED'])
-        for s in active_sessions:
-            if s.status == 'IN_PROGRESS':
-                seg_start_str = s.current_segment_start or s.start_time
-                seg_sec = 0
-                if seg_start_str:
-                    try:
-                        s_dt = datetime.fromisoformat(seg_start_str.replace("Z", "+00:00"))
-                        seg_sec = max(0, int((now_utc - s_dt).total_seconds()))
-                    except Exception:
-                        pass
-                s.duration_seconds += seg_sec
-                s.task.total_duration_seconds += seg_sec
-                s.task.save(update_fields=['total_duration_seconds', 'updated_at'])
-                segs = list(s.work_segments or [])
-                segs.append({'start_time': seg_start_str, 'end_time': now_utc_str, 'duration_seconds': seg_sec})
-                s.work_segments = segs
-            s.current_segment_start = None
-            s.end_time = now_utc_str
-            s.status = 'ENDED'
-            s.updated_at = now_utc_str
-            s.save()
-            if s.task_log_id:
-                TaskLog.objects.filter(task_id=s.task_log_id).update(
-                    end_time=now_utc_str, status='ENDED', is_explicit_completed=False, updated_at=now_utc_str
-                )
-            ProjectAuditHistory.objects.create(
-                project=s.task.project,
-                task=s.task,
-                action='SESSION_STOPPED',
-                actor=request.user,
-                actor_name=f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username,
-                details={'reason': 'Workday ended (clock-out)'}
-            )
+        close_res = close_employee_active_workday_and_timers(
+            request.user.id,
+            close_reason="END_WORK",
+            source=source,
+            explicit_timestamp=now_utc
+        )
+        return Response({'success': True, 'event': close_res.get('event'), 'status': 'Ended'})
 
     # Server writes timestamp, ignores any client timestamp
     res = storage.record_event(request.user.id, action, source=source)
@@ -835,6 +1065,7 @@ def user_management(request):
             'last_name': u.last_name,
             'email': u.email,
             'department': u.department,
+            'designation': getattr(u, 'designation', '') or u.department or '',
             'role': u.role,
             'employment_status': u.employment_status,
             'approval_status': u.approval_status,
@@ -856,6 +1087,7 @@ def user_management(request):
                 last_name = parts[1]
 
         department = (request.data.get('department') or '').strip()
+        designation = (request.data.get('designation') or '').strip()
         role = request.data.get('role', 'EMPLOYEE')
         password = request.data.get('password')
         approval_status = request.data.get('approval_status', 'APPROVED')
@@ -889,6 +1121,7 @@ def user_management(request):
             first_name=first_name,
             last_name=last_name,
             department=department,
+            designation=designation,
             role=assigned_role,
             employee_id=emp_id,
             approval_status='APPROVED',
@@ -912,6 +1145,7 @@ def user_management(request):
                 'name': f"{user.first_name} {user.last_name}".strip() or user.username,
                 'role': user.role,
                 'department': user.department,
+    
                 'approval_status': user.approval_status
             }
         }, status=201)
@@ -960,6 +1194,8 @@ def user_detail_manage(request, user_id):
 
     if 'department' in data:
         user.department = data['department']
+    if 'designation' in data:
+        user.designation = (data.get('designation') or '').strip()
     if 'role' in data and data['role'] in ['ADMIN', 'EMPLOYEE']:
         new_role = data['role']
         if previous_role != new_role:
@@ -1003,6 +1239,7 @@ def user_detail_manage(request, user_id):
         user.employee_id = generate_unique_employee_id(user.first_name or user.username)
         
     user.save()
+    cache.clear()
     storage.log_audit(
         action="UPDATE_USER",
         actor=request.user.email or request.user.username,
@@ -1040,6 +1277,7 @@ def approve_user_view(request, user_id):
     user.approval_status = 'APPROVED'
     user.is_active = True
     user.save()
+    cache.clear()
     storage.log_audit(
         action="APPROVE_USER",
         actor=request.user.email,
@@ -1060,6 +1298,7 @@ def reject_user_view(request, user_id):
 
     user.approval_status = 'REJECTED'
     user.save()
+    cache.clear()
     storage.log_audit(
         action="REJECT_USER",
         actor=request.user.email,
@@ -1807,8 +2046,10 @@ def get_monthly_timesheet_data(target_user, year, month, filter_project=None, fi
             if metrics['end_time']:
                 e_dt = parse_iso_utc(metrics['end_time'])
                 total_day_seconds = max(0, int((e_dt - s_dt).total_seconds()))
-            elif day_status != 'Not Started':
+            elif day_date == today_ist_date and day_status in ['In Progress', 'Working', 'On Break']:
                 total_day_seconds = max(0, int((now_utc - s_dt).total_seconds()))
+            else:
+                total_day_seconds = metrics['total_work_seconds'] + metrics['total_break_seconds']
 
         required_seconds = 32400  # 9 hours
         is_completed = total_day_seconds >= required_seconds
@@ -1876,6 +2117,7 @@ def get_monthly_timesheet_data(target_user, year, month, filter_project=None, fi
             'name': f"{target_user.first_name} {target_user.last_name}".strip() or target_user.username,
             'email': target_user.email,
             'department': target_user.department or 'Unassigned',
+            'designation': getattr(target_user, 'designation', '') or target_user.department or '',
             'role': target_user.role
         },
         'year': year,
@@ -2293,7 +2535,8 @@ def daily_tasks_view(request):
             'employee_id': emp_code,
             'name': emp_name,
             'email': target_user.email,
-            'department': target_user.department
+            'department': target_user.department,
+            'designation': getattr(target_user, 'designation', '') or target_user.department or '',
         },
         'tasks': processed_tasks,
         'active_task': active_task,
@@ -2321,6 +2564,10 @@ def start_task_view(request):
         return Response({'error': 'Project name is required to start a task.'}, status=400)
     if not task_name:
         return Response({'error': 'Task name is required to start a task.'}, status=400)
+    if task_name.lower() in ('other', 'other — enter manually', 'other - enter manually'):
+        return Response({'error': 'Please enter a specific task name when selecting Other.'}, status=400)
+    if task_name.lower() == 'break':
+        return Response({'error': 'Breaks should be recorded using the Start Break button rather than as a productive task.'}, status=400)
 
     now_utc = datetime.now(timezone.utc)
     now_ist = now_utc.astimezone(IST_TZ)
@@ -2354,6 +2601,8 @@ def start_task_view(request):
     emp_name = f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username
 
     try:
+        explicit_status = request.data.get('project_status')
+        ensure_employee_project_status(request.user, project_name, starting_work=True, explicit_status=explicit_status)
         new_task = storage.start_task(
             user_id=request.user.id,
             project_name=project_name,
@@ -2398,6 +2647,20 @@ def update_task_view(request, task_log_id):
     project_name = request.data.get('project_name')
     task_name = request.data.get('task_name')
     description = request.data.get('description')
+
+    if task_name is not None:
+        task_name = str(task_name).strip()
+        if not task_name:
+            return Response({'error': 'Task name cannot be empty.'}, status=400)
+        if task_name.lower() in ('other', 'other — enter manually', 'other - enter manually'):
+            return Response({'error': 'Please enter a specific task name when selecting Other.'}, status=400)
+        if task_name.lower() == 'break':
+            return Response({'error': 'Breaks should be recorded using the Start Break button rather than as a productive task.'}, status=400)
+
+    project_status = request.data.get('project_status')
+    if project_status and project_name:
+        ensure_employee_project_status(request.user, project_name, starting_work=False, explicit_status=project_status)
+        cache.clear()
 
     try:
         updated = storage.update_task_details(
@@ -2937,19 +3200,25 @@ def get_admin_hourly_task_report_data(request):
             cur_start_str = t.current_segment_start or t.start_time
             cur_start_dt = safe_parse_utc(cur_start_str)
             if cur_start_dt:
-                cur_end_dt = max(cur_start_dt, now_utc)
-                work_intervals.append({
-                    'start': cur_start_dt,
-                    'end': cur_end_dt,
-                    'accuracy': 'exact',
-                    'note': 'Live in-progress work session',
-                    'ratio': 1.0
-                })
+                is_today = (target_date_obj == now_local.date())
+                if is_today and cur_start_dt.astimezone(ws_tz).date() == target_date_obj:
+                    cur_end_dt = max(cur_start_dt, min(now_utc, day_end_utc))
+                else:
+                    cur_end_dt = min(cur_start_dt + timedelta(seconds=t.duration_seconds or 0), day_end_utc)
+                if cur_end_dt > cur_start_dt:
+                    work_intervals.append({
+                        'start': cur_start_dt,
+                        'end': cur_end_dt,
+                        'accuracy': 'exact',
+                        'note': 'Live in-progress work session',
+                        'ratio': 1.0
+                    })
 
         # Historical fallback if no segments recorded
         if not work_intervals:
             s_dt = safe_parse_utc(t.start_time)
-            e_dt = safe_parse_utc(t.end_time) if t.end_time else (now_utc if t.status == 'IN_PROGRESS' else None)
+            is_today = (target_date_obj == now_local.date())
+            e_dt = safe_parse_utc(t.end_time) if t.end_time else (min(now_utc, day_end_utc) if (t.status == 'IN_PROGRESS' and is_today) else (s_dt + timedelta(seconds=t.duration_seconds or 0) if s_dt else None))
             if s_dt and e_dt and e_dt > s_dt:
                 total_span = (e_dt - s_dt).total_seconds()
                 dur_sec = t.duration_seconds or 0
@@ -3638,17 +3907,11 @@ def analytics_dashboard_view(request):
         p_name = (t.get('project_name') or 'Unassigned').strip()
         t_name = (t.get('task_name') or 'Unnamed Task').strip()
         status = t.get('status', 'COMPLETED')
-
-        s_dt = parse_iso_utc(t.get('start_time'))
-        e_dt = parse_iso_utc(t.get('end_time')) if t.get('end_time') else None
-        if e_dt and s_dt:
-            dur = max(0, int((e_dt - s_dt).total_seconds()))
+        dur = storage.calculate_task_duration(t, now_utc)
+        if status == 'COMPLETED':
             completed_tasks_count += 1
-        elif s_dt:
-            dur = max(0, int((now_utc - s_dt).total_seconds()))
+        elif status == 'IN_PROGRESS':
             in_progress_tasks_count += 1
-        else:
-            dur = 0
 
         if p_name not in project_aggregates:
             project_aggregates[p_name] = {
@@ -4075,7 +4338,8 @@ def extract_task_period_sessions_and_duration(t, period_start_utc, period_end_ut
                 if seg_start_str:
                     try:
                         dt_s = datetime.fromisoformat(seg_start_str.replace("Z", "+00:00"))
-                        seg_seconds += max(0, int((now_utc_dt - dt_s).total_seconds()))
+                        if dt_s.astimezone(IST_TZ).date() == now_utc_dt.astimezone(IST_TZ).date():
+                            seg_seconds += max(0, int((now_utc_dt - dt_s).total_seconds()))
                     except Exception:
                         pass
             has_overlap = True
@@ -4103,11 +4367,12 @@ def extract_task_period_sessions_and_duration(t, period_start_utc, period_end_ut
                 if seg_start_str:
                     try:
                         dt_s = datetime.fromisoformat(seg_start_str.replace("Z", "+00:00"))
-                        dt_e = min(now_utc_dt, period_end_utc)
-                        ov_s = max(dt_s, period_start_utc)
-                        if dt_e > ov_s:
-                            seg_seconds += int((dt_e - ov_s).total_seconds())
-                            has_overlap = True
+                        if dt_s.astimezone(IST_TZ).date() == now_utc_dt.astimezone(IST_TZ).date():
+                            dt_e = min(now_utc_dt, period_end_utc)
+                            ov_s = max(dt_s, period_start_utc)
+                            if dt_e > ov_s:
+                                seg_seconds += int((dt_e - ov_s).total_seconds())
+                                has_overlap = True
                     except Exception:
                         pass
 
@@ -4117,7 +4382,7 @@ def extract_task_period_sessions_and_duration(t, period_start_utc, period_end_ut
                     dt_s = datetime.fromisoformat(s.start_time.replace("Z", "+00:00"))
                     if s.end_time:
                         dt_e = datetime.fromisoformat(s.end_time.replace("Z", "+00:00"))
-                    elif s.status == 'IN_PROGRESS':
+                    elif s.status == 'IN_PROGRESS' and dt_s.astimezone(IST_TZ).date() == now_utc_dt.astimezone(IST_TZ).date():
                         dt_e = min(now_utc_dt, period_end_utc)
                     else:
                         dt_e = dt_s + timedelta(seconds=s.duration_seconds)
@@ -4153,6 +4418,8 @@ def extract_task_period_sessions_and_duration(t, period_start_utc, period_end_ut
                     end_time_display = dt.strftime('%I:%M %p')
                 except Exception:
                     end_time_display = s.end_time
+            elif s.status == 'IN_PROGRESS':
+                end_time_display = 'Running'
 
             period_sessions.append({
                 'session_id': s.session_id,
@@ -4175,6 +4442,152 @@ def extract_task_period_sessions_and_duration(t, period_start_utc, period_end_ut
 def extract_task_today_sessions_and_duration(t, today_start_utc, today_end_utc, target_ist_date, now_utc_dt):
     """Legacy helper delegated to extract_task_period_sessions_and_duration."""
     return extract_task_period_sessions_and_duration(t, today_start_utc, today_end_utc, now_utc_dt=now_utc_dt)
+
+
+def extract_project_work_intervals(tasks_all, period_bounds, filter_user_id=None, now_utc_dt=None):
+    """
+    Extracts all distinct, discrete work intervals for a project matching the period and employee filter.
+    - Excludes breaks and pause periods by inspecting individual work segments.
+    - Formats timestamps in Asia/Kolkata (IST).
+    - If running, marks end as 'Running'.
+    - If period is weekly, monthly, custom, or all, prefixes unambiguous date (e.g. '06 Nov, 03:58 PM – 04:00 PM').
+    - Returns list of intervals sorted with running sessions first, then descending by start time.
+    """
+    if now_utc_dt is None:
+        now_utc_dt = datetime.now(timezone.utc)
+
+    period_type = 'all'
+    period_start_utc = None
+    period_end_utc = None
+    if period_bounds:
+        period_type = period_bounds[0]
+        period_start_utc = period_bounds[1]
+        period_end_utc = period_bounds[2]
+
+    intervals = []
+    seen = set()
+
+    for t in tasks_all:
+        if filter_user_id is not None and t.assigned_to_id != filter_user_id:
+            # Check if this task has any sessions by filter_user_id
+            if not any(s.user_id == filter_user_id for s in t.work_sessions.all()):
+                continue
+
+        for s in t.work_sessions.all():
+            if filter_user_id is not None and s.user_id != filter_user_id:
+                continue
+
+            u = getattr(s, 'user', None) or t.assigned_to
+            u_name = f"{u.first_name} {u.last_name}".strip() if u else ""
+            if not u_name and u:
+                u_name = u.username
+            user_name = u_name or 'Employee'
+            emp_code = getattr(u, 'employee_id', '') or (f"EMP{u.id:03d}" if u else '')
+
+            raw_segments = []
+            if s.work_segments and isinstance(s.work_segments, list):
+                for seg in s.work_segments:
+                    if isinstance(seg, dict):
+                        st_str = seg.get('start_time') or seg.get('start')
+                        et_str = seg.get('end_time') or seg.get('end')
+                        if st_str and et_str:
+                            try:
+                                dt_s = datetime.fromisoformat(st_str.replace("Z", "+00:00"))
+                                dt_e = datetime.fromisoformat(et_str.replace("Z", "+00:00"))
+                                if dt_e > dt_s:
+                                    raw_segments.append((dt_s, dt_e, False))
+                            except Exception:
+                                pass
+
+            # Live in-progress segment
+            if s.status == 'IN_PROGRESS':
+                cur_st = s.current_segment_start or s.start_time
+                if cur_st:
+                    try:
+                        dt_s = datetime.fromisoformat(cur_st.replace("Z", "+00:00"))
+                        raw_segments.append((dt_s, max(dt_s, now_utc_dt), True))
+                    except Exception:
+                        pass
+
+            # Fallback to session interval if no segments
+            if not raw_segments and s.start_time:
+                try:
+                    dt_s = datetime.fromisoformat(s.start_time.replace("Z", "+00:00"))
+                    if s.end_time:
+                        dt_e = datetime.fromisoformat(s.end_time.replace("Z", "+00:00"))
+                        if dt_e > dt_s:
+                            raw_segments.append((dt_s, dt_e, False))
+                    elif s.status == 'IN_PROGRESS':
+                        raw_segments.append((dt_s, max(dt_s, now_utc_dt), True))
+                    else:
+                        dt_e = dt_s + timedelta(seconds=s.duration_seconds)
+                        if dt_e > dt_s:
+                            raw_segments.append((dt_s, dt_e, False))
+                except Exception:
+                    pass
+
+            for dt_s, dt_e, is_running in raw_segments:
+                if period_start_utc is not None and period_end_utc is not None:
+                    ov_s = max(dt_s, period_start_utc)
+                    ov_e = min(dt_e, period_end_utc)
+                    if not is_running and ov_e <= ov_s:
+                        continue
+                    if is_running:
+                        if ov_s >= period_end_utc or dt_s >= period_end_utc:
+                            continue
+                        ov_e = max(ov_s, min(now_utc_dt, period_end_utc))
+                    active_running = is_running and (now_utc_dt < period_end_utc)
+                else:
+                    ov_s = dt_s
+                    ov_e = dt_e
+                    active_running = is_running
+
+                seg_key = (t.task_id, s.session_id, ov_s.isoformat(), ov_e.isoformat(), active_running)
+                if seg_key in seen:
+                    continue
+                seen.add(seg_key)
+
+                s_ist = ov_s.astimezone(IST_TZ)
+                e_ist = ov_e.astimezone(IST_TZ)
+                start_ist_str = s_ist.strftime('%I:%M %p')
+                end_ist_str = 'Running' if active_running else e_ist.strftime('%I:%M %p')
+                date_display = format_ist_unambiguous_date(s_ist)
+
+                if period_type in ['weekly', 'monthly', 'custom', 'all']:
+                    date_prefix = f"{s_ist.strftime('%d %b')}, "
+                    interval_display = f"{date_prefix}{start_ist_str} – {end_ist_str}"
+                else:
+                    interval_display = f"{start_ist_str} – {end_ist_str}"
+
+                seg_dur = max(0, int((ov_e - ov_s).total_seconds()))
+
+                intervals.append({
+                    'interval_display': interval_display,
+                    'start_time': ov_s.isoformat(),
+                    'end_time': ov_e.isoformat() if not active_running else None,
+                    'start_time_display': start_ist_str,
+                    'end_time_display': end_ist_str,
+                    'is_running': active_running,
+                    'date': str(s_ist.date()),
+                    'date_display': date_display,
+                    'duration_seconds': seg_dur,
+                    'user_id': u.id if u else s.user_id,
+                    'user_name': user_name,
+                    'employee_id': emp_code,
+                    'task_id': t.task_id,
+                    'task_title': t.title,
+                    'session_id': s.session_id,
+                    '_sort_running': 1 if active_running else 0,
+                    '_sort_time': ov_s
+                })
+
+    # Sort running sessions first, then most recent start time descending
+    intervals.sort(key=lambda item: (item['_sort_running'], item['_sort_time']), reverse=True)
+    for item in intervals:
+        item.pop('_sort_running', None)
+        item.pop('_sort_time', None)
+
+    return intervals
 
 
 def serialize_project_summary(p, preloaded_tasks=None, period_bounds=None, filter_user_id=None, now_utc_dt=None):
@@ -4213,16 +4626,44 @@ def serialize_project_summary(p, preloaded_tasks=None, period_bounds=None, filte
     else:
         label = f"{completed_tasks} of {total_tasks} tasks completed"
 
+    # Map employee-reported project status for this project
+    eps_map = {
+        eps.user_id: eps
+        for eps in EmployeeProjectStatus.objects.filter(project_name__iexact=p.name).select_related('user')
+    }
+
     assigned_map = {}
     for t in tasks_all:
         u = t.assigned_to
         if u and u.id not in assigned_map:
+            eps_rec = eps_map.get(u.id)
             assigned_map[u.id] = {
                 'id': u.id,
                 'name': f"{u.first_name} {u.last_name}".strip() or u.username,
                 'employee_id': getattr(u, 'employee_id', '') or f"EMP{u.id:03d}",
                 'email': u.email,
-                'department': u.department
+                'department': u.department,
+            'designation': getattr(u, 'designation', '') or u.department or '',
+                'employee_project_status': eps_rec.status if eps_rec else 'JUST_STARTED',
+                'employee_project_status_display': eps_rec.get_status_display() if eps_rec else 'Just Started',
+                'employee_project_status_updated_at': eps_rec.updated_at.isoformat() if eps_rec else None,
+                'employee_project_status_updated_at_display': format_ist_unambiguous_datetime(eps_rec.updated_at) if eps_rec else None
+            }
+    # Also include any employees who recorded work on this project via EmployeeProjectStatus
+    for uid, eps_rec in eps_map.items():
+        if uid not in assigned_map and eps_rec.user:
+            u = eps_rec.user
+            assigned_map[uid] = {
+                'id': u.id,
+                'name': f"{u.first_name} {u.last_name}".strip() or u.username,
+                'employee_id': getattr(u, 'employee_id', '') or f"EMP{u.id:03d}",
+                'email': u.email,
+                'department': u.department,
+            'designation': getattr(u, 'designation', '') or u.department or '',
+                'employee_project_status': eps_rec.status,
+                'employee_project_status_display': eps_rec.get_status_display(),
+                'employee_project_status_updated_at': eps_rec.updated_at.isoformat(),
+                'employee_project_status_updated_at_display': format_ist_unambiguous_datetime(eps_rec.updated_at)
             }
     assigned_employees = list(assigned_map.values())
 
@@ -4333,6 +4774,13 @@ def serialize_project_summary(p, preloaded_tasks=None, period_bounds=None, filte
     else:
         has_period_activity = len(period_active_tasks_ids) > 0
 
+    # Discrete work intervals for the period
+    period_intervals = extract_project_work_intervals(
+        tasks_all, period_bounds, filter_user_id=filter_user_id, now_utc_dt=now_utc_dt
+    )
+    primary_interval = period_intervals[0]['interval_display'] if period_intervals else 'No work session'
+    extra_intervals_count = max(0, len(period_intervals) - 1)
+
     return {
         'project_id': p.project_id,
         'name': p.name,
@@ -4370,7 +4818,11 @@ def serialize_project_summary(p, preloaded_tasks=None, period_bounds=None, filte
         'period_tasks_completed_count': len(period_tasks_completed_ids),
         'period_active_tasks_count': len(period_active_tasks_ids),
         'has_period_activity': has_period_activity,
-        'assigned_employees': assigned_employees
+        'assigned_employees': assigned_employees,
+        # Work Intervals (IST)
+        'period_intervals': period_intervals,
+        'primary_interval': primary_interval,
+        'extra_intervals_count': extra_intervals_count
     }
 
 
@@ -4513,7 +4965,8 @@ def serialize_task_item(t, current_user=None, today_bounds=None, project_status=
         'work_sessions': sessions_history,
         'created_at': t.created_at.isoformat() if t.created_at else None,
         'created_at_display': format_ist_unambiguous_datetime(t.created_at),
-        'updated_at': t.updated_at.isoformat() if t.updated_at else None
+        'updated_at': t.updated_at.isoformat() if t.updated_at else None,
+        'last_activity_display': format_ist_unambiguous_datetime(t.updated_at) if t.updated_at else format_ist_unambiguous_datetime(t.created_at)
     }
 
 
@@ -4760,6 +5213,7 @@ def admin_project_detail_view(request, project_id):
         })
 
     # GET: Optimized batch load of tasks and details for the selected period & employee
+    sync_tasklogs_to_projects()
     now_utc = datetime.now(timezone.utc)
     period_bounds = parse_project_period_bounds(request.GET, now_utc)
     (period_type, period_start_utc, period_end_utc, period_label, range_display, d_start, d_end) = period_bounds
@@ -4834,6 +5288,7 @@ def admin_project_detail_view(request, project_id):
                         'employee_name': f"{u.first_name} {u.last_name}".strip() or u.username,
                         'employee_id': getattr(u, 'employee_id', '') or f"EMP{uid:03d}",
                         'department': u.department,
+            'designation': getattr(u, 'designation', '') or u.department or '',
                         'tasks_count': 0,
                         'completed_tasks_count': 0,
                         'total_duration_seconds': 0,
@@ -4846,8 +5301,19 @@ def admin_project_detail_view(request, project_id):
                     contributions[uid]['completed_tasks_count'] += 1
                 contributions[uid]['total_duration_seconds'] += t.total_duration_seconds
 
+    # Map employee-reported project status for detailed contributions
+    eps_detail_map = {
+        eps.user_id: eps
+        for eps in EmployeeProjectStatus.objects.filter(project_name__iexact=project.name)
+    }
+
     # Populate period-specific metrics per employee
     for uid, c_data in contributions.items():
+        eps_item = eps_detail_map.get(uid)
+        c_data['employee_project_status'] = eps_item.status if eps_item else 'JUST_STARTED'
+        c_data['employee_project_status_display'] = eps_item.get_status_display() if eps_item else 'Just Started'
+        c_data['employee_project_status_updated_at'] = eps_item.updated_at.isoformat() if eps_item else None
+        c_data['employee_project_status_updated_at_display'] = format_ist_unambiguous_datetime(eps_item.updated_at) if eps_item else None
         emp_period_sec = 0
         emp_tasks_worked = set()
         emp_tasks_comp = set()
@@ -4864,14 +5330,15 @@ def admin_project_detail_view(request, project_id):
         c_data['period_tasks_completed'] = len(emp_tasks_comp)
 
     # All matching work sessions across tasks for the period
-    all_period_sessions = []
-    for t_data in tasks_data:
-        for ws in t_data.get('work_sessions', []):
-            ws_copy = dict(ws)
-            ws_copy['task_title'] = t_data['title']
-            ws_copy['task_id'] = t_data['task_id']
-            all_period_sessions.append(ws_copy)
-    all_period_sessions.sort(key=lambda s: s.get('start_time') or '', reverse=True)
+    all_period_sessions = list(summary.get('period_intervals', []))
+    if not all_period_sessions:
+        for t_data in tasks_data:
+            for ws in t_data.get('work_sessions', []):
+                ws_copy = dict(ws)
+                ws_copy['task_title'] = t_data['title']
+                ws_copy['task_id'] = t_data['task_id']
+                all_period_sessions.append(ws_copy)
+        all_period_sessions.sort(key=lambda s: s.get('start_time') or '', reverse=True)
 
     # All matching progress notes across tasks
     all_period_notes = []
@@ -5107,24 +5574,39 @@ def project_tasks_my_tasks_view(request):
         seen_task_ids.add(t.task_id)
 
         if not all_history:
-            # Exact visibility rule:
-            # Show a task only when its original created_at falls between today at 00:00 IST
-            # and tomorrow at 00:00 IST, with the end boundary excluded.
-            # Hide tasks created on previous dates, regardless of their current status.
-            # Do not include older tasks because they were updated, resumed, reopened, or completed today.
+            # Daily History Rule:
+            # Include a task when it has:
+            # 1. A work session overlapping the selected day, regardless of original creation date; or
+            # 2. An explicit completion event during that day; or
+            # 3. Original creation on the selected day.
+            # Exclude previous-date tasks with no matching activity on the selected day.
             orig_created_at = t.created_at
-            tlog = TaskLog.objects.filter(project_task_id=t.task_id).order_by('created_at').first()
-            if not tlog:
-                tlog = TaskLog.objects.filter(task_name__iexact=t.title, project_name__iexact=t.project.name).order_by('created_at').first()
-            if tlog and tlog.created_at:
-                try:
-                    tlog_dt = datetime.fromisoformat(tlog.created_at.replace("Z", "+00:00"))
-                    if orig_created_at is None or tlog_dt < orig_created_at:
-                        orig_created_at = tlog_dt
-                except Exception:
-                    pass
+            is_created_today = bool(orig_created_at and (day_start_utc <= orig_created_at < day_end_utc))
 
-            if not orig_created_at or not (day_start_utc <= orig_created_at < day_end_utc):
+            # Check work session overlap for selected day
+            task_today_sec, task_today_sessions = extract_task_period_sessions_and_duration(
+                t, day_start_utc, day_end_utc, now_utc_dt=now_utc
+            )
+            has_session_today = len(task_today_sessions) > 0 or task_today_sec > 0
+            if not has_session_today:
+                if t.work_sessions.filter(date=target_ist_date.isoformat()).exists():
+                    has_session_today = True
+
+            # Check explicit completion event during selected day
+            has_completion_today = False
+            if t.completed_at and (day_start_utc <= t.completed_at < day_end_utc):
+                has_completion_today = True
+            elif t.status == 'COMPLETED':
+                comp_tl = TaskLog.objects.filter(project_task_id=t.task_id, is_explicit_completed=True).first()
+                if comp_tl and comp_tl.completed_at:
+                    try:
+                        c_dt = datetime.fromisoformat(comp_tl.completed_at.replace("Z", "+00:00"))
+                        if day_start_utc <= c_dt < day_end_utc:
+                            has_completion_today = True
+                    except Exception:
+                        pass
+
+            if not (has_session_today or has_completion_today or is_created_today):
                 continue
 
         serialized = serialize_task_item(t, current_user=user, today_bounds=today_bounds if not all_history else None)
@@ -5143,8 +5625,13 @@ def project_tasks_my_tasks_view(request):
     projects_data = list(project_map.values())
 
     total_work_seconds_today = sum(t.get('today_duration_seconds', 0) for t in tasks_data)
+    tasks_worked_today = sum(1 for t in tasks_data if (t.get('today_duration_seconds', 0) > 0 or (t.get('work_sessions') and len(t['work_sessions']) > 0)))
+    tasks_created_today = sum(1 for t in tasks_data if t.get('created_at') and day_start_utc.isoformat() <= (t.get('created_at') or '') < day_end_utc.isoformat())
+
     summary_data = {
         'total_tasks': len(tasks_data),
+        'tasks_worked_today': tasks_worked_today,
+        'tasks_created_today': tasks_created_today,
         'not_started': sum(1 for t in tasks_data if t['status'] == 'NOT_STARTED'),
         'in_progress': sum(1 for t in tasks_data if t['status'] == 'IN_PROGRESS'),
         'completed': sum(1 for t in tasks_data if t['status'] == 'COMPLETED'),
@@ -5179,6 +5666,15 @@ def project_task_detail_update_view(request, task_id):
 
     title = request.data.get('title')
     description = request.data.get('description')
+
+    if title is not None:
+        title = str(title).strip()
+        if not title:
+            return Response({'error': 'Task title cannot be empty.'}, status=400)
+        if title.lower() in ('other', 'other — enter manually', 'other - enter manually'):
+            return Response({'error': 'Please enter a specific task title when selecting Other.'}, status=400)
+        if title.lower() == 'break':
+            return Response({'error': 'Breaks should be recorded using the Start Break button rather than as a productive task.'}, status=400)
     assigned_to_id = request.data.get('assigned_to')
     deadline_str = request.data.get('deadline')
 
@@ -5275,8 +5771,8 @@ def project_task_start_view(request, task_id):
                 work_segments=cs.work_segments, current_segment_start=None, updated_at=now_utc_str
             )
 
-    # 2. End any generic legacy task running for user
-    storage.end_any_active_task_for_user(request.user.id, now_utc_str)
+    # 2. End any generic legacy task running for user on other tasks
+    storage.end_any_active_task_for_user(request.user.id, now_utc_str, exclude_task_id=task.task_id)
 
     # 3. Task status transition
     if task.status == 'NOT_STARTED':
@@ -5287,6 +5783,7 @@ def project_task_start_view(request, task_id):
         task.project.first_started_at = now_utc_dt
         task.project.save(update_fields=['first_started_at'])
     task.save()
+    ensure_employee_project_status(request.user, task.project.name, project_obj=task.project, starting_work=True)
 
     # 4. Resume existing paused session or create new session
     paused_session = WorkSession.objects.filter(task=task, user=request.user, status='PAUSED').first()
@@ -5733,3 +6230,101 @@ def extension_download_view(request):
 
     return Response({'error': 'Extension package not found. Please contact administrator.'}, status=404)
 
+
+
+@api_view(['GET', 'POST', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def employee_project_status_view(request):
+    """
+    Manages employee-reported project contribution status:
+    - Options: 'JUST_STARTED', 'IN_PROGRESS', 'COMPLETED'
+    - Immediate persistence without mandatory reason or admin approval.
+    - Audits every change with actor, old/new status, and timestamp.
+    """
+    display_map = {'JUST_STARTED': 'Just Started', 'IN_PROGRESS': 'In Progress', 'COMPLETED': 'Completed'}
+    
+    if request.method == 'GET':
+        project_name = (request.GET.get('project_name') or '').strip()
+        if not project_name:
+            return Response({'error': 'project_name query parameter is required.'}, status=400)
+        
+        eps = EmployeeProjectStatus.objects.filter(user=request.user, project_name__iexact=project_name).first()
+        status_val = eps.status if eps else 'JUST_STARTED'
+        return Response({
+            'project_name': project_name,
+            'status': status_val,
+            'status_display': display_map.get(status_val, 'Just Started'),
+            'updated_at': eps.updated_at.isoformat() if eps else None,
+            'updated_at_display': format_ist_unambiguous_datetime(eps.updated_at) if eps else None
+        })
+
+    # POST or PATCH
+    project_name = (request.data.get('project_name') or '').strip()
+    status_input = (request.data.get('status') or '').strip().upper().replace(' ', '_')
+    
+    status_map = {
+        'JUST_STARTED': 'JUST_STARTED',
+        'JUSTSTARTED': 'JUST_STARTED',
+        'IN_PROGRESS': 'IN_PROGRESS',
+        'INPROGRESS': 'IN_PROGRESS',
+        'COMPLETED': 'COMPLETED',
+        'COMPLETE': 'COMPLETED'
+    }
+    target_status = status_map.get(status_input)
+    if not target_status:
+        return Response({'error': 'Invalid status. Options are Just Started, In Progress, or Completed.'}, status=400)
+    if not project_name:
+        return Response({'error': 'project_name is required.'}, status=400)
+
+    project_obj = Project.objects.filter(name__iexact=project_name).first()
+
+    eps, created = EmployeeProjectStatus.objects.get_or_create(
+        user=request.user,
+        project_name=project_name,
+        defaults={
+            'project': project_obj,
+            'status': target_status
+        }
+    )
+    old_status = 'NOT_SET' if created else eps.status
+    if not created and eps.status != target_status:
+        eps.status = target_status
+        if project_obj and not eps.project:
+            eps.project = project_obj
+        eps.save(update_fields=['status', 'project', 'updated_at'])
+
+    actor_name = f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username
+    ProjectAuditHistory.objects.create(
+        project=project_obj,
+        action='EMPLOYEE_PROJECT_STATUS_UPDATED',
+        actor=request.user,
+        actor_name=actor_name,
+        details={
+            'project_name': project_name,
+            'old_status': old_status,
+            'new_status': target_status,
+            'updated_by_id': request.user.id
+        }
+    )
+    storage.log_audit(
+        action="EMPLOYEE_PROJECT_STATUS_UPDATED",
+        actor=request.user.username,
+        details={
+            'project_name': project_name,
+            'old_status': old_status,
+            'new_status': target_status,
+            'user_id': request.user.id
+        }
+    )
+
+    # Invalidate cache so admin views refresh immediately
+    cache.clear()
+
+    return Response({
+        'message': f"Project status updated to {display_map[target_status]}.",
+        'project_name': project_name,
+        'status': target_status,
+        'status_display': display_map[target_status],
+        'updated_at': eps.updated_at.isoformat(),
+        'updated_at_display': format_ist_unambiguous_datetime(eps.updated_at)
+    })

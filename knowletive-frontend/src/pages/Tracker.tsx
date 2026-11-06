@@ -6,12 +6,13 @@ import {
   Plus, Edit2, Check, ArrowRight,
   Clock, Shield, X, TrendingUp, Coffee,
   CheckCircle2, Briefcase, ListTodo,
-  RotateCcw, MessageSquare, Download, Puzzle
+  MessageSquare, Download, Puzzle, History
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import api from '../lib/api';
 import DailyTaskAnalyticsDashboard from '../components/DailyTaskAnalyticsDashboard';
 import EmployeeProjectTasks from '../components/EmployeeProjectTasks';
+import TaskNameSelector from '../components/TaskNameSelector';
 
 import { formatDigitalDuration, formatDisplayDate } from '../utils/formatters';
 
@@ -54,6 +55,7 @@ export default function Tracker() {
   const [successMsg, setSuccessMsg] = useState<string>('');
   const [reminderDismissed, setReminderDismissed] = useState<boolean>(false);
   const [showExtensionModal, setShowExtensionModal] = useState<boolean>(false);
+  const [showExtensionBanner, setShowExtensionBanner] = useState<boolean>(true);
   const [notificationEnabled, setNotificationEnabled] = useState<boolean>(
     typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted'
   );
@@ -83,12 +85,10 @@ export default function Tracker() {
   const [showEditTaskModal, setShowEditTaskModal] = useState<boolean>(false);
   const [editingTask, setEditingTask] = useState<any | null>(null);
 
-  // Reopen Task Modal
-  const [showReopenModal, setShowReopenModal] = useState<boolean>(false);
-  const [reopenTargetTaskId, setReopenTargetTaskId] = useState<string>('');
-  const [reopenReason, setReopenReason] = useState<string>('');
+
 
   // Progress Note Modal
+  const [loggingOut, setLoggingOut] = useState<boolean>(false);
   const [showNoteModal, setShowNoteModal] = useState<boolean>(false);
   const [noteTargetTaskId, setNoteTargetTaskId] = useState<string>('');
   const [noteContent, setNoteContent] = useState<string>('');
@@ -97,11 +97,44 @@ export default function Tracker() {
   const [existingProjects, setExistingProjects] = useState<any[]>([]);
   const [unfinishedTasks, setUnfinishedTasks] = useState<any[]>([]);
 
+
+  // Load saved project status when entering/selecting a project
+  const handleProjectNameChange = async (name: string) => {
+    setTaskForm((prev) => ({ ...prev, project_name: name }));
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setTaskForm((prev) => ({ ...prev, project_status: 'JUST_STARTED' }));
+      return;
+    }
+    try {
+      const res = await api.get(`/employee/project-status/?project_name=${encodeURIComponent(trimmed)}`);
+      if (res.data && res.data.status) {
+        setTaskForm((prev) => (prev.project_name.trim().toLowerCase() === trimmed.toLowerCase() ? { ...prev, project_status: res.data.status } : prev));
+      }
+    } catch {}
+  };
+
+  const handleNextProjectNameChange = async (name: string) => {
+    setNextTaskForm((prev) => ({ ...prev, project_name: name }));
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setNextTaskForm((prev) => ({ ...prev, project_status: 'JUST_STARTED' }));
+      return;
+    }
+    try {
+      const res = await api.get(`/employee/project-status/?project_name=${encodeURIComponent(trimmed)}`);
+      if (res.data && res.data.status) {
+        setNextTaskForm((prev) => (prev.project_name.trim().toLowerCase() === trimmed.toLowerCase() ? { ...prev, project_status: res.data.status } : prev));
+      }
+    } catch {}
+  };
+
   // Form states
   interface TaskFormData {
     project_name: string;
     task_name: string;
     description: string;
+    project_status: string;
     project_task_id?: string;
   }
 
@@ -109,6 +142,7 @@ export default function Tracker() {
     project_name: '',
     task_name: '',
     description: '',
+    project_status: 'JUST_STARTED',
     project_task_id: ''
   });
 
@@ -116,13 +150,15 @@ export default function Tracker() {
     project_name: '',
     task_name: '',
     description: '',
+    project_status: 'JUST_STARTED',
     project_task_id: ''
   });
 
   const [editTaskForm, setEditTaskForm] = useState({
     project_name: '',
     task_name: '',
-    description: ''
+    description: '',
+    project_status: 'JUST_STARTED'
   });
 
   const navigate = useNavigate();
@@ -136,11 +172,15 @@ export default function Tracker() {
 
   const isAdmin = user.role === 'ADMIN';
 
+
+
   useEffect(() => {
     if (isAdmin) {
       navigate('/admin', { replace: true });
     }
   }, [isAdmin, navigate]);
+
+
 
   const fetchStatus = async () => {
     try {
@@ -157,16 +197,38 @@ export default function Tracker() {
       setEndTime(data.end_time);
       if (data.active_task) {
         setActiveTask(data.active_task);
-      } else if (data.status === 'Ended') {
+      } else {
         setActiveTask(null);
       }
       if (data.settings) setOfficeSettings(data.settings);
+      try {
+        const meRes = await api.get('/auth/me/');
+        if (meRes.data?.user) {
+          const freshUser = meRes.data.user;
+          localStorage.setItem('user', JSON.stringify({ ...user, ...freshUser }));
+          setEmployeeInfo((prev: any) => ({
+            ...prev,
+            designation: freshUser.designation,
+            department: freshUser.department
+          }));
+        }
+      } catch {}
     } catch (err: any) {
       setErrorMsg(err.response?.data?.error || 'Unable to sync with server.');
     }
   };
 
   const [employeeInfo, setEmployeeInfo] = useState<any>(null);
+
+  const currentJobFunction = useMemo(() => {
+    return (
+      employeeInfo?.designation ||
+      user?.designation ||
+      employeeInfo?.department ||
+      user?.department ||
+      ''
+    );
+  }, [employeeInfo, user]);
 
   const fetchDailyTasks = async (dateStr?: string, projectFilter?: string) => {
     const targetDate = dateStr || selectedTaskDate;
@@ -181,7 +243,12 @@ export default function Tracker() {
       const res = await api.get(`/tasks/daily/?${params.toString()}`);
       const data = res.data;
       if (data.employee) {
-        setEmployeeInfo(data.employee);
+        setEmployeeInfo((prev: any) => ({
+          ...prev,
+          ...data.employee,
+          designation: data.employee.designation || prev?.designation || user?.designation || '',
+          department: data.employee.department || prev?.department || user?.department || ''
+        }));
         if (data.employee.employee_id && !user.employee_id) {
           const updatedUser = { ...user, employee_id: data.employee.employee_id };
           localStorage.setItem('user', JSON.stringify(updatedUser));
@@ -370,6 +437,7 @@ export default function Tracker() {
       project_name: '',
       task_name: '',
       description: '',
+      project_status: 'JUST_STARTED',
       project_task_id: ''
     });
     fetchProjectSuggestions();
@@ -393,6 +461,7 @@ export default function Tracker() {
         project_name: taskForm.project_name.trim(),
         task_name: taskForm.task_name.trim(),
         description: taskForm.description.trim(),
+        project_status: taskForm.project_status,
         project_task_id: taskForm.project_task_id || undefined
       });
 
@@ -426,10 +495,11 @@ export default function Tracker() {
         project_name: taskForm.project_name.trim(),
         task_name: taskForm.task_name.trim(),
         description: taskForm.description.trim(),
+        project_status: taskForm.project_status,
         project_task_id: taskForm.project_task_id || undefined
       });
       setShowNewTaskModal(false);
-      setTaskForm({ project_name: '', task_name: '', description: '', project_task_id: '' });
+      setTaskForm({ project_name: '', task_name: '', description: '', project_status: 'JUST_STARTED', project_task_id: '' });
       setSuccessMsg('Task started successfully.');
       setTimeout(() => setSuccessMsg(''), 4000);
       await fetchStatus();
@@ -538,34 +608,6 @@ export default function Tracker() {
     }
   };
 
-  // Reopen completed task (requires mandatory reason)
-  const handleReopenTaskSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!reopenReason.trim() || !reopenTargetTaskId) {
-      setErrorMsg('A mandatory reason is required to reopen this task.');
-      return;
-    }
-    setLoadingAction(true);
-    setErrorMsg('');
-    try {
-      await api.post(`/project-tasks/${reopenTargetTaskId}/reopen/`, {
-        reason: reopenReason.trim()
-      });
-      setSuccessMsg('Task reopened successfully. Status returned to In Progress.');
-      setShowReopenModal(false);
-      setReopenReason('');
-      setReopenTargetTaskId('');
-      setTimeout(() => setSuccessMsg(''), 4000);
-      await fetchStatus();
-      await fetchDailyTasks();
-      await fetchProjectSuggestions();
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.error || 'Failed to reopen task.');
-    } finally {
-      setLoadingAction(false);
-    }
-  };
-
   // Add progress note
   const handleAddNoteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -611,11 +653,12 @@ export default function Tracker() {
       await api.post('/tasks/start/', {
         project_name: nextTaskForm.project_name.trim(),
         task_name: nextTaskForm.task_name.trim(),
-        description: nextTaskForm.description.trim()
+        description: nextTaskForm.description.trim(),
+        project_status: nextTaskForm.project_status
       });
 
       setShowEndAndNextModal(false);
-      setNextTaskForm({ project_name: '', task_name: '', description: '' });
+      setNextTaskForm({ project_name: '', task_name: '', description: '', project_status: 'JUST_STARTED', project_task_id: '' });
       setSuccessMsg('Previous task completed and next task started.');
       setTimeout(() => setSuccessMsg(''), 4000);
       await fetchStatus();
@@ -628,14 +671,23 @@ export default function Tracker() {
   };
 
   // Open Edit Task Modal
-  const openEditModal = (task: any) => {
+  const openEditModal = async (task: any) => {
     setEditingTask(task);
+    const initialStatus = task.my_project_status || 'JUST_STARTED';
     setEditTaskForm({
       project_name: task.project_name,
       task_name: task.task_name,
-      description: task.description || ''
+      description: task.description || '',
+      project_status: initialStatus
     });
     setShowEditTaskModal(true);
+
+    try {
+      const res = await api.get(`/employee/project-status/?project_name=${encodeURIComponent(task.project_name)}`);
+      if (res.data && res.data.status) {
+        setEditTaskForm((prev) => ({ ...prev, project_status: res.data.status }));
+      }
+    } catch {}
   };
 
   // Submit Edit Task details
@@ -655,8 +707,16 @@ export default function Tracker() {
       await api.patch(`/tasks/${editingTask.task_log_id}/`, {
         project_name: editTaskForm.project_name.trim(),
         task_name: editTaskForm.task_name.trim(),
-        description: editTaskForm.description.trim()
+        description: editTaskForm.description.trim(),
+        project_status: editTaskForm.project_status
       });
+
+      if (editTaskForm.project_status) {
+        await api.post('/employee/project-status/', {
+          project_name: editTaskForm.project_name.trim(),
+          status: editTaskForm.project_status
+        });
+      }
       setShowEditTaskModal(false);
       setEditingTask(null);
       setSuccessMsg('Task details updated.');
@@ -677,14 +737,21 @@ export default function Tracker() {
   };
 
   const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    setErrorMsg('');
     try {
       await api.post('/auth/logout/');
-    } catch {
-      // ignore
-    } finally {
+      // Clear active task and local cached credentials
+      setActiveTask(null);
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       navigate('/login');
+    } catch (err: any) {
+      const msg = err.response?.data?.error || err.response?.data?.message || 'Failed to safely close your active work sessions on the server. Please check your connection and retry, or click "End Workday" before signing out.';
+      setErrorMsg(msg);
+    } finally {
+      setLoggingOut(false);
     }
   };
 
@@ -818,780 +885,737 @@ export default function Tracker() {
 
           <button
             onClick={handleLogout}
+            disabled={loggingOut}
             title="Sign Out"
-            className="clay-btn clay-btn-secondary px-3 py-2 text-xs font-semibold rounded-xl hover:!text-rose-600"
+            className="clay-btn clay-btn-secondary px-3 py-2 text-xs font-semibold rounded-xl hover:!text-rose-600 disabled:opacity-50"
           >
-            <LogOut size={14} />
-            <span className="hidden md:inline">Sign Out</span>
+            <LogOut size={14} className={loggingOut ? "animate-spin" : ""} />
+            <span className="hidden md:inline">{loggingOut ? "Signing Out..." : "Sign Out"}</span>
           </button>
         </div>
       </header>
 
       {/* 2. MAIN CONTAINER */}
-      <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-5">
-        {/* Error Feedback Banner */}
-        {errorMsg && (
-          <div className="p-4 bg-rose-50/90 border border-rose-200/90 rounded-2xl flex items-center justify-between gap-3 text-rose-900 text-xs shadow-xs animate-fadeIn">
-            <div className="flex items-center gap-2.5">
-              <AlertTriangle size={16} className="shrink-0 text-rose-600" />
-              <span className="font-medium">{errorMsg}</span>
-            </div>
-            <button 
-              onClick={() => setErrorMsg('')}
-              className="p-1 text-rose-500 hover:text-rose-700 rounded-lg hover:bg-rose-100 transition"
-            >
-              <X size={15} />
-            </button>
-          </div>
-        )}
-
-        {/* Success Feedback Banner */}
-        {successMsg && (
-          <div className="p-4 bg-emerald-50/90 border border-emerald-200/90 rounded-2xl flex items-center justify-between gap-3 text-emerald-900 text-xs shadow-xs animate-fadeIn">
-            <div className="flex items-center gap-2.5">
-              <CheckCircle size={16} className="shrink-0 text-emerald-600" />
-              <span className="font-medium">{successMsg}</span>
-            </div>
-            <button 
-              onClick={() => setSuccessMsg('')}
-              className="p-1 text-emerald-600 hover:text-emerald-800 rounded-lg hover:bg-emerald-100 transition"
-            >
-              <X size={15} />
-            </button>
-          </div>
-        )}
-
-        {/* Office Hours Reminders */}
-        {isStartReminderActive && (
-          <div className="p-3.5 bg-amber-50/90 border border-amber-200/90 rounded-2xl flex items-center justify-between gap-3 text-amber-900 text-xs shadow-xs">
-            <div className="flex items-center gap-2.5">
-              <Info size={16} className="text-amber-600 shrink-0" />
-              <span>Standard office hours start at <strong>{officeSettings.work_start_time} AM IST</strong>. Start your workday when ready.</span>
-            </div>
-            <button 
-              onClick={() => setReminderDismissed(true)} 
-              className="clay-btn clay-btn-secondary text-xs px-2.5 py-1 rounded-lg"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {isEndReminderActive && (
-          <div className="p-3.5 bg-sky-50/90 border border-sky-200/90 rounded-2xl flex items-center justify-between gap-3 text-sky-900 text-xs shadow-xs">
-            <div className="flex items-center gap-2.5">
-              <Info size={16} className="text-sky-600 shrink-0" />
-              <span>Scheduled workday finishes at <strong>{officeSettings.work_end_time} IST</strong>. Remember to clock out before leaving.</span>
-            </div>
-            <button 
-              onClick={() => setReminderDismissed(true)} 
-              className="clay-btn clay-btn-secondary text-xs px-2.5 py-1 rounded-lg"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-
-        {/* Quick Chrome Extension Download Banner */}
-        <div className="clay-card-flat px-4 py-3 bg-gradient-to-r from-indigo-50/80 via-white to-sky-50/80 border border-indigo-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-2xl">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
-              <Puzzle size={18} />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <p className="text-xs font-bold text-slate-800">Knowletive Chrome Extension</p>
-                <span className="clay-pill clay-pill-indigo text-[10px] py-0 px-1.5 font-bold">v1.0.0</span>
+      <main className="flex-1 w-full max-w-[1680px] mx-auto px-3.5 sm:px-6 lg:px-8 py-3.5 sm:py-4 flex flex-col lg:h-[calc(100vh-65px)] lg:overflow-hidden min-h-0">
+        {/* Top Feedback & Reminder Banners */}
+        <div className="shrink-0 space-y-2 mb-2.5">
+          {/* Error Feedback Banner */}
+          {errorMsg && (
+            <div className="p-3 sm:p-3.5 bg-rose-50/90 border border-rose-200/90 rounded-2xl flex items-center justify-between gap-3 text-rose-900 text-xs shadow-xs animate-fadeIn">
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle size={15} className="shrink-0 text-rose-600" />
+                <span className="font-medium">{errorMsg}</span>
               </div>
-              <p className="text-[11px] text-slate-500 font-medium">
-                Track attendance and work sessions from any browser tab with centralized sync.
-              </p>
+              <button 
+                onClick={() => setErrorMsg('')}
+                className="p-1 text-rose-500 hover:text-rose-700 rounded-lg hover:bg-rose-100 transition"
+              >
+                <X size={14} />
+              </button>
             </div>
-          </div>
-          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
-            <button
-              onClick={() => setShowExtensionModal(true)}
-              className="clay-btn clay-btn-secondary text-xs px-3 py-1.5 rounded-xl font-medium"
-            >
-              How to Install
-            </button>
-            <a
-              href="/knowletive-extension.zip"
-              download="knowletive-extension.zip"
-              className="clay-btn clay-btn-primary text-xs px-3 py-1.5 rounded-xl font-semibold flex items-center gap-1.5 shadow-xs"
-            >
-              <Download size={13} />
-              <span>Download Extension</span>
-            </a>
-          </div>
+          )}
+
+          {/* Success Feedback Banner */}
+          {successMsg && (
+            <div className="p-3 sm:p-3.5 bg-emerald-50/90 border border-emerald-200/90 rounded-2xl flex items-center justify-between gap-3 text-emerald-900 text-xs shadow-xs animate-fadeIn">
+              <div className="flex items-center gap-2.5">
+                <CheckCircle size={15} className="shrink-0 text-emerald-600" />
+                <span className="font-medium">{successMsg}</span>
+              </div>
+              <button 
+                onClick={() => setSuccessMsg('')}
+                className="p-1 text-emerald-600 hover:text-emerald-800 rounded-lg hover:bg-emerald-100 transition"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
+          {/* Office Hours Reminders */}
+          {isStartReminderActive && (
+            <div className="p-3 bg-amber-50/90 border border-amber-200/90 rounded-2xl flex items-center justify-between gap-3 text-amber-900 text-xs shadow-xs">
+              <div className="flex items-center gap-2.5">
+                <Info size={15} className="text-amber-600 shrink-0" />
+                <span>Standard office hours start at <strong>{officeSettings.work_start_time} AM IST</strong>. Start your workday when ready.</span>
+              </div>
+              <button 
+                onClick={() => setReminderDismissed(true)} 
+                className="clay-btn clay-btn-secondary text-xs px-2.5 py-1 rounded-lg"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {isEndReminderActive && (
+            <div className="p-3 bg-sky-50/90 border border-sky-200/90 rounded-2xl flex items-center justify-between gap-3 text-sky-900 text-xs shadow-xs">
+              <div className="flex items-center gap-2.5">
+                <Info size={15} className="text-sky-600 shrink-0" />
+                <span>Scheduled workday finishes at <strong>{officeSettings.work_end_time} IST</strong>. Remember to clock out before leaving.</span>
+              </div>
+              <button 
+                onClick={() => setReminderDismissed(true)} 
+                className="clay-btn clay-btn-secondary text-xs px-2.5 py-1 rounded-lg"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {/* Quick Chrome Extension Download Banner */}
+          {showExtensionBanner && (
+            <div className="clay-card-flat px-3.5 py-2 sm:py-2.5 bg-gradient-to-r from-indigo-50/80 via-white to-sky-50/80 border border-indigo-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 rounded-2xl">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <Puzzle size={16} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-bold text-slate-800">Knowletive Chrome Extension</p>
+                    <span className="clay-pill clay-pill-indigo text-[9px] py-0 px-1.5 font-bold">v1.0.0</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-medium">
+                    Track attendance and work sessions from any browser tab with centralized sync.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                <button
+                  onClick={() => setShowExtensionModal(true)}
+                  className="clay-btn clay-btn-secondary text-[11px] px-2.5 py-1.5 rounded-xl font-medium"
+                >
+                  How to Install
+                </button>
+                <a
+                  href="/knowletive-extension.zip"
+                  download="knowletive-extension.zip"
+                  className="clay-btn clay-btn-primary text-[11px] px-2.5 py-1.5 rounded-xl font-semibold flex items-center gap-1.5 shadow-xs"
+                >
+                  <Download size={12} />
+                  <span>Download Extension</span>
+                </a>
+                <button
+                  onClick={() => setShowExtensionBanner(false)}
+                  className="p-1 text-slate-400 hover:text-slate-600 rounded-lg transition ml-1"
+                  title="Dismiss banner"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* 3. HERO WORKDAY STATUS CARD (Claymorphic) */}
-        <div className="clay-card p-6 sm:p-8 relative">
-          {/* Header Status & Verification Label */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-slate-200/60">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">Workday Attendance</p>
-              <div className="flex items-center gap-3">
-                <span className={`w-3.5 h-3.5 rounded-full ${statusTheme.dotBg}`} />
-                <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                  {status === 'Working' ? 'Working' :
-                   status === 'On Break' ? 'On Break' :
-                   status === 'Ended' ? 'Workday Completed' : 'Not Clocked In'}
-                </h2>
-              </div>
-            </div>
-
-            <div className="clay-pill clay-pill-neutral self-start sm:self-auto">
-              <ShieldCheck size={14} className="text-emerald-600" />
-              <span>Server-Verified Time (IST)</span>
-            </div>
-          </div>
-
-          {/* Central Digital Stopwatch */}
-          <div className="text-center py-6 sm:py-7">
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">
-              {status === 'Ended' ? 'Workday Completed' : status === 'Not Started' ? 'Tracker Not Started' : 'Total Hours Today'}
-            </p>
-            <div className="font-mono text-5xl sm:text-6xl font-black tracking-tight text-slate-900 drop-shadow-xs">
-              {formatDigitalDuration(elapsedTotalDay)}
-            </div>
+        {/* ================================================================ */}
+        {/* TWO-COLUMN DESKTOP GRID (Left 40% Attendance, Right 60% Tasks)   */}
+        {/* ================================================================ */}
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-[minmax(380px,40%)_1fr] gap-4 lg:gap-5 min-h-0">
+          
+          {/* ============================================================== */}
+          {/* LEFT COLUMN: Attendance, Metric Tiles & Current Task Controls   */}
+          {/* ============================================================== */}
+          <div className="flex flex-col gap-3.5 min-h-0 lg:overflow-y-auto lg:pr-1.5 custom-scrollbar">
             
-            {/* 9 Hour Completion Progress with Clay Inset Well */}
-            {status !== 'Not Started' && (
-              <div className="mt-6 flex flex-col items-center">
-                <div className="w-full max-w-md clay-inset-well h-3 mb-2.5 p-0.5 overflow-hidden flex items-center">
-                  <div 
-                    className={`h-full rounded-full transition-all duration-1000 shadow-xs ${is9HoursCompleted ? 'bg-gradient-to-r from-emerald-500 to-teal-500' : 'bg-gradient-to-r from-indigo-500 to-indigo-600'}`}
-                    style={{ width: `${progressPercentage}%` }}
-                  />
+            {/* WORKDAY ATTENDANCE CARD */}
+            <div className="clay-card p-4 sm:p-5 relative flex flex-col justify-between">
+              {/* Header Status & Verification Label */}
+              <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-200/60">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-0.5">Workday Attendance</p>
+                  <div className="flex items-center gap-2.5">
+                    <span className={`w-3 h-3 rounded-full ${statusTheme.dotBg}`} />
+                    <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                      {status === 'Working' ? 'Working' :
+                       status === 'On Break' ? 'On Break' :
+                       status === 'Ended' ? 'Workday Completed' : 'Not Clocked In'}
+                    </h2>
+                  </div>
+                </div>
+
+                <div className="clay-pill clay-pill-neutral self-start sm:self-auto text-[10px] sm:text-xs py-0.5 px-2">
+                  <ShieldCheck size={13} className="text-emerald-600" />
+                  <span>Server-Verified Time (IST)</span>
+                </div>
+              </div>
+
+              {/* Central Digital Stopwatch */}
+              <div className="text-center py-3 sm:py-4">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
+                  {status === 'Ended' ? 'Workday Completed' : status === 'Not Started' ? 'Tracker Not Started' : 'Total Hours Today'}
+                </p>
+                <div className="font-mono text-3xl sm:text-4xl lg:text-4xl xl:text-5xl font-black tracking-tight text-slate-900 drop-shadow-xs">
+                  {formatDigitalDuration(elapsedTotalDay)}
                 </div>
                 
-                {is9HoursCompleted ? (
-                  <p className="text-sm text-emerald-700 font-bold flex items-center gap-1.5">
-                    <CheckCircle2 size={16} /> 9 Hours Completed (Extra: {formatDigitalDuration(extraSeconds)})
-                  </p>
-                ) : (
-                  <p className="text-xs text-slate-500 font-medium flex items-center gap-2">
-                    <span>{progressPercentage.toFixed(1)}% of 9h completed</span>
-                    <span className="text-slate-300">•</span>
-                    <span className="text-indigo-700 font-semibold">Remaining: {formatDigitalDuration(remainingSeconds)}</span>
-                  </p>
+                {/* 9 Hour Completion Progress with Clay Inset Well */}
+                {status !== 'Not Started' && (
+                  <div className="mt-3 sm:mt-4 flex flex-col items-center">
+                    <div className="w-full max-w-sm clay-inset-well h-2.5 mb-1.5 p-0.5 overflow-hidden flex items-center">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-1000 shadow-xs ${is9HoursCompleted ? 'bg-gradient-to-r from-emerald-500 to-teal-500' : 'bg-gradient-to-r from-indigo-500 to-indigo-600'}`}
+                        style={{ width: `${progressPercentage}%` }}
+                      />
+                    </div>
+                    
+                    {is9HoursCompleted ? (
+                      <p className="text-xs text-emerald-700 font-bold flex items-center gap-1.5">
+                        <CheckCircle2 size={14} /> 9 Hours Completed (Extra: {formatDigitalDuration(extraSeconds)})
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1.5">
+                        <span>{progressPercentage.toFixed(1)}% of 9h completed</span>
+                        <span className="text-slate-300">•</span>
+                        <span className="text-indigo-700 font-semibold">Remaining: {formatDigitalDuration(remainingSeconds)}</span>
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
-          </div>
 
-          {/* 4 Metric Tiles Strip with Claymorphic Depth */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-2">
-            <div className="clay-card-flat p-4 text-center">
-              <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider mb-1">Clock-In</p>
-              <p className="text-sm sm:text-base font-bold text-slate-800">
-                {formatReadableTime(startTime)}
-              </p>
-            </div>
-
-            <div className={`clay-card-flat p-4 text-center transition ${status === 'Working' ? '!bg-emerald-50/70 !border-emerald-300/80 ring-2 ring-emerald-200/50' : ''}`}>
-              <div className="flex items-center justify-center gap-1.5 mb-1">
-                {status === 'Working' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />}
-                <p className={`text-[11px] font-bold uppercase tracking-wider ${status === 'Working' ? 'text-emerald-800' : 'text-slate-500'}`}>
-                  Work Time {status === 'On Break' ? '(Frozen)' : ''}
-                </p>
-              </div>
-              <p className={`text-sm sm:text-base font-bold font-mono ${status === 'Working' ? 'text-emerald-700' : 'text-slate-700'}`}>
-                {formatDigitalDuration(elapsedWork)}
-              </p>
-            </div>
-
-            <div className={`clay-card-flat p-4 text-center transition ${status === 'On Break' ? '!bg-amber-50/70 !border-amber-300/80 ring-2 ring-amber-200/50' : ''}`}>
-              <div className="flex items-center justify-center gap-1.5 mb-1">
-                {status === 'On Break' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />}
-                <p className={`text-[11px] font-bold uppercase tracking-wider ${status === 'On Break' ? 'text-amber-800' : 'text-slate-500'}`}>
-                  Break Time {status === 'Working' ? '(Frozen)' : ''}
-                </p>
-              </div>
-              <p className={`text-sm sm:text-base font-bold font-mono ${status === 'On Break' ? 'text-amber-700' : 'text-slate-700'}`}>
-                {formatDigitalDuration(elapsedBreak)}
-              </p>
-            </div>
-
-            <div className="clay-card-flat p-4 text-center">
-              <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider mb-1">Clock-Out</p>
-              <p className="text-sm sm:text-base font-bold text-slate-800">
-                {formatReadableTime(endTime)}
-              </p>
-            </div>
-          </div>
-
-          {/* Primary Action Buttons (Tactile Clay) */}
-          <div className="pt-5 border-t border-slate-200/60">
-            {status === 'Not Started' && (
-              <button
-                onClick={handleStartWorkdayClick}
-                disabled={loadingAction}
-                className="clay-btn clay-btn-success w-full py-4 text-base sm:text-lg font-bold rounded-2xl"
-              >
-                <Play size={20} className="fill-white" />
-                <span>{loadingAction ? 'Starting Workday...' : 'Start Workday'}</span>
-              </button>
-            )}
-
-            {status === 'Working' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <button
-                  onClick={() => handleAction('START_BREAK')}
-                  disabled={loadingAction}
-                  className="clay-btn clay-btn-warning py-3.5 px-6 font-bold text-sm sm:text-base rounded-2xl"
-                >
-                  <Coffee size={18} />
-                  <span>{loadingAction ? 'Updating...' : 'Start Break'}</span>
-                </button>
-                <button
-                  onClick={() => handleAction('END_WORK')}
-                  disabled={loadingAction}
-                  className="clay-btn clay-btn-danger py-3.5 px-6 font-bold text-sm sm:text-base rounded-2xl"
-                >
-                  <CheckCircle size={18} />
-                  <span>End Workday</span>
-                </button>
-              </div>
-            )}
-
-            {status === 'On Break' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <button
-                  onClick={() => handleAction('RESUME_WORK')}
-                  disabled={loadingAction}
-                  className="clay-btn clay-btn-primary py-3.5 px-6 font-bold text-sm sm:text-base rounded-2xl"
-                >
-                  <Play size={18} className="fill-white" />
-                  <span>{loadingAction ? 'Updating...' : 'Resume Work (End Break)'}</span>
-                </button>
-                <button
-                  onClick={() => handleAction('END_WORK')}
-                  disabled={loadingAction}
-                  className="clay-btn clay-btn-danger py-3.5 px-6 font-bold text-sm sm:text-base rounded-2xl"
-                >
-                  <CheckCircle size={18} />
-                  <span>End Workday</span>
-                </button>
-              </div>
-            )}
-
-            {status === 'Ended' && (
-              <div className="p-4 clay-card-flat text-center">
-                <p className="text-slate-900 font-bold text-sm flex items-center justify-center gap-1.5">
-                  <CheckCircle2 size={16} className="text-emerald-600" />
-                  Workday Completed
-                </p>
-                <p className="text-slate-500 text-xs mt-0.5">
-                  Your work and break records have been securely saved. Reach out to your admin if any corrections are needed.
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* 4. ACTIVE TASK CARD */}
-        {activeTask ? (
-          <div className={`clay-card p-6 sm:p-7 relative space-y-4 border transition-all ${
-            status === 'On Break'
-              ? '!border-amber-300/80 !bg-amber-50/40 ring-2 ring-amber-200/50'
-              : '!border-indigo-300/80 !bg-indigo-50/30 ring-2 ring-indigo-200/40'
-          }`}>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-200/60">
-              <div>
-                <div className="flex items-center gap-2 mb-1.5">
-                  {status === 'On Break' ? (
-                    <span className="clay-pill clay-pill-warning">
-                      <Pause size={12} className="text-amber-700" />
-                      Paused during Break
-                    </span>
-                  ) : (
-                    <span className="clay-pill clay-pill-success">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-                      Working on Task
-                    </span>
-                  )}
-                  <span className="clay-pill clay-pill-indigo">
-                    {activeTask.project_name}
-                  </span>
+              {/* 4 Metric Tiles Strip with Claymorphic Depth */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5 my-2">
+                <div className="clay-card-flat p-2.5 text-center">
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-0.5">Clock-In</p>
+                  <p className="text-xs sm:text-sm font-bold font-mono text-slate-800">
+                    {formatReadableTime(startTime)}
+                  </p>
                 </div>
-                <h3 className="text-xl font-extrabold text-slate-900 tracking-tight">
-                  {activeTask.task_name}
-                </h3>
+
+                <div className={`clay-card-flat p-2.5 text-center transition ${status === 'Working' ? '!bg-emerald-50/70 !border-emerald-300/80 ring-2 ring-emerald-200/50' : ''}`}>
+                  <div className="flex items-center justify-center gap-1 mb-0.5">
+                    {status === 'Working' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />}
+                    <p className={`text-[10px] font-bold uppercase tracking-wider truncate ${status === 'Working' ? 'text-emerald-800' : 'text-slate-500'}`}>
+                      Work {status === 'On Break' ? '(Frozen)' : ''}
+                    </p>
+                  </div>
+                  <p className={`text-xs sm:text-sm font-bold font-mono ${status === 'Working' ? 'text-emerald-700' : 'text-slate-700'}`}>
+                    {formatDigitalDuration(elapsedWork)}
+                  </p>
+                </div>
+
+                <div className={`clay-card-flat p-2.5 text-center transition ${status === 'On Break' ? '!bg-amber-50/70 !border-amber-300/80 ring-2 ring-amber-200/50' : ''}`}>
+                  <div className="flex items-center justify-center gap-1 mb-0.5">
+                    {status === 'On Break' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />}
+                    <p className={`text-[10px] font-bold uppercase tracking-wider truncate ${status === 'On Break' ? 'text-amber-800' : 'text-slate-500'}`}>
+                      Break {status === 'Working' ? '(Frozen)' : ''}
+                    </p>
+                  </div>
+                  <p className={`text-xs sm:text-sm font-bold font-mono ${status === 'On Break' ? 'text-amber-700' : 'text-slate-700'}`}>
+                    {formatDigitalDuration(elapsedBreak)}
+                  </p>
+                </div>
+
+                <div className="clay-card-flat p-2.5 text-center">
+                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-0.5">Clock-Out</p>
+                  <p className="text-xs sm:text-sm font-bold font-mono text-slate-800">
+                    {formatReadableTime(endTime)}
+                  </p>
+                </div>
               </div>
 
-              {/* Task Running Timer (FROZEN if on break) */}
-              <div className={`clay-card-flat px-5 py-3 text-right self-start sm:self-auto ${
-                status === 'On Break' ? '!bg-amber-50/90 !border-amber-300/80' : '!bg-white/95 !border-indigo-200/80'
+              {/* Primary Action Buttons (Tactile Clay) */}
+              <div className="pt-3 border-t border-slate-200/60">
+                {status === 'Not Started' && (
+                  <button
+                    onClick={handleStartWorkdayClick}
+                    disabled={loadingAction}
+                    className="clay-btn clay-btn-success w-full py-3 text-sm sm:text-base font-bold rounded-xl"
+                  >
+                    <Play size={18} className="fill-white" />
+                    <span>{loadingAction ? 'Starting Workday...' : 'Start Workday'}</span>
+                  </button>
+                )}
+
+                {status === 'Working' && (
+                  <div className="flex items-center justify-between gap-2.5">
+                    <button
+                      onClick={() => handleAction('START_BREAK')}
+                      disabled={loadingAction}
+                      className="clay-btn clay-btn-warning flex-1 py-2.5 px-4 font-bold text-xs sm:text-sm rounded-xl min-h-[40px]"
+                    >
+                      <Coffee size={16} />
+                      <span>{loadingAction ? 'Updating...' : 'Start Break'}</span>
+                    </button>
+                    <button
+                      onClick={() => setShowEndModal(true)}
+                      disabled={loadingAction}
+                      className="px-3.5 py-2 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl border border-rose-200 transition min-h-[40px] shrink-0"
+                      title="End Workday (Requires Confirmation)"
+                    >
+                      End Workday
+                    </button>
+                  </div>
+                )}
+
+                {status === 'On Break' && (
+                  <div className="flex items-center justify-between gap-2.5">
+                    <button
+                      onClick={() => handleAction('RESUME_WORK')}
+                      disabled={loadingAction}
+                      className="clay-btn clay-btn-primary flex-1 py-2.5 px-4 font-bold text-xs sm:text-sm rounded-xl min-h-[40px]"
+                    >
+                      <Play size={16} className="fill-white" />
+                      <span>{loadingAction ? 'Updating...' : 'Resume Work (End Break)'}</span>
+                    </button>
+                    <button
+                      onClick={() => setShowEndModal(true)}
+                      disabled={loadingAction}
+                      className="px-3.5 py-2 text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl border border-rose-200 transition min-h-[40px] shrink-0"
+                      title="End Workday (Requires Confirmation)"
+                    >
+                      End Workday
+                    </button>
+                  </div>
+                )}
+
+                {status === 'Ended' && (
+                  <div className="p-3 clay-card-flat text-center">
+                    <p className="text-slate-900 font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5">
+                      <CheckCircle2 size={15} className="text-emerald-600" />
+                      Workday Completed
+                    </p>
+                    <p className="text-slate-500 text-[11px] mt-0.5">
+                      Your work and break records have been securely saved. Reach out to your admin if any corrections are needed.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* CURRENT TASK CARD / NO TASK IN PROGRESS */}
+            {activeTask ? (
+              <div className={`clay-card p-4 sm:p-5 relative space-y-3 border transition-all ${
+                status === 'On Break'
+                  ? '!border-amber-300/80 !bg-amber-50/40 ring-2 ring-amber-200/50'
+                  : '!border-indigo-300/80 !bg-indigo-50/30 ring-2 ring-indigo-200/40'
               }`}>
-                <p className={`text-[10px] font-bold uppercase tracking-wider ${status === 'On Break' ? 'text-amber-700' : 'text-slate-500'}`}>
-                  {status === 'On Break' ? 'Task Timer (FROZEN)' : 'Task Running Time'}
+                <div className="flex items-start justify-between gap-3 pb-2.5 border-b border-slate-200/60">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                      {status === 'On Break' ? (
+                        <span className="clay-pill clay-pill-warning text-[10px] py-0 px-2">
+                          <Pause size={10} className="text-amber-700" />
+                          Paused during Break
+                        </span>
+                      ) : (
+                        <span className="clay-pill clay-pill-success text-[10px] py-0 px-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                          Working on Task
+                        </span>
+                      )}
+                      <span className="clay-pill clay-pill-indigo text-[10px] py-0 px-2 truncate max-w-[200px]">
+                        {activeTask.project_name}
+                      </span>
+                    </div>
+                    <h3 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight truncate">
+                      {activeTask.task_name}
+                    </h3>
+                  </div>
+
+                  {/* Task Running Timer (FROZEN if on break) */}
+                  <div className={`clay-card-flat px-3 py-1.5 text-right shrink-0 ${
+                    status === 'On Break' ? '!bg-amber-50/90 !border-amber-300/80' : '!bg-white/95 !border-indigo-200/80'
+                  }`}>
+                    <p className={`text-[9px] font-bold uppercase tracking-wider ${status === 'On Break' ? 'text-amber-700' : 'text-slate-500'}`}>
+                      {status === 'On Break' ? 'Timer (FROZEN)' : 'Running Time'}
+                    </p>
+                    <p className={`font-mono text-base sm:text-lg font-black tracking-tight ${status === 'On Break' ? 'text-amber-700' : 'text-indigo-600'}`}>
+                      {formatDigitalDuration(activeTaskElapsed)}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Description & Start Timestamp */}
+                <div className="text-xs text-slate-700 space-y-1">
+                  <p className="text-slate-600 leading-relaxed font-medium line-clamp-2">
+                    {activeTask.description || <span className="italic text-slate-400">No task description entered</span>}
+                  </p>
+                  <div className="text-[11px] text-slate-500 font-medium flex items-center gap-1.5">
+                    <Clock size={12} className="text-indigo-600" />
+                    <span>Started at <strong className="text-slate-800">{activeTask.start_time_formatted || '-'}</strong></span>
+                  </div>
+                </div>
+
+                {/* Explanatory Helper */}
+                <p className="text-[11px] text-slate-400 font-medium italic">
+                  Pausing stops the timer. Mark Completed finishes the task.
                 </p>
-                <p className={`font-mono text-2xl font-black tracking-tight ${status === 'On Break' ? 'text-amber-700' : 'text-indigo-600'}`}>
-                  {formatDigitalDuration(activeTaskElapsed)}
-                </p>
-              </div>
-            </div>
 
-            {/* Description & Start Timestamp */}
-            <div className="text-xs sm:text-sm text-slate-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <p className="text-slate-600 leading-relaxed font-medium">
-                {activeTask.description || <span className="italic text-slate-400">No task description entered</span>}
-              </p>
-              <div className="text-xs text-slate-500 font-medium flex items-center gap-1.5 shrink-0">
-                <Clock size={13} className="text-indigo-600" />
-                <span>Started at <strong className="text-slate-800">{activeTask.start_time_formatted || '-'}</strong></span>
-              </div>
-            </div>
+                {/* Action Buttons */}
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200/60">
+                  {/* Primary action: Resume or Pause depending on state */}
+                  {status === 'On Break' ? (
+                    <button
+                      onClick={() => handleAction('RESUME_WORK')}
+                      disabled={loadingAction}
+                      className="clay-btn clay-btn-primary py-2 px-3.5 text-xs rounded-xl font-bold min-h-[38px]"
+                    >
+                      <Play size={13} className="fill-white" />
+                      <span>Resume Task</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleStopActiveTask}
+                      disabled={loadingAction}
+                      className="clay-btn clay-btn-secondary py-2 px-3.5 text-xs rounded-xl font-bold min-h-[38px]"
+                      title="Pause task timer (Leaves task In Progress)"
+                    >
+                      <Pause size={13} />
+                      <span>Pause Task</span>
+                    </button>
+                  )}
 
-            {/* Action Buttons (Tactile Clay) */}
-            <div className="flex flex-wrap items-center gap-2.5 pt-2 border-t border-slate-200/60">
-              {status === 'On Break' ? (
-                <>
-                  <button
-                    onClick={() => handleAction('RESUME_WORK')}
-                    disabled={loadingAction}
-                    className="clay-btn clay-btn-primary py-2.5 px-4 text-xs sm:text-sm rounded-xl"
-                  >
-                    <Play size={14} className="fill-white" />
-                    <span>Resume This Task</span>
-                  </button>
-
+                  {/* Secondary quick actions: Switch Task & Mark Completed */}
                   <button
                     onClick={() => setShowEndAndNextModal(true)}
                     disabled={loadingAction}
-                    className="clay-btn clay-btn-secondary py-2.5 px-4 text-xs sm:text-sm rounded-xl"
-                  >
-                    <ArrowRight size={14} />
-                    <span>Switch to Another Task</span>
-                  </button>
-
-                  <button
-                    onClick={handleStopActiveTask}
-                    disabled={loadingAction}
-                    className="clay-btn clay-btn-secondary py-2.5 px-4 text-xs sm:text-sm rounded-xl"
-                    title="Stop task timer (Leaves task In Progress)"
-                  >
-                    <Pause size={14} />
-                    <span>Stop Task</span>
-                  </button>
-
-                  <button
-                    onClick={handleCompleteActiveTask}
-                    disabled={loadingAction}
-                    className="clay-btn clay-btn-success py-2.5 px-4 text-xs sm:text-sm rounded-xl font-bold"
-                    title="Explicitly complete task and close work session"
-                  >
-                    <CheckCircle2 size={14} />
-                    <span>Mark Completed</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setNoteTargetTaskId(activeTask.project_task_id || activeTask.task_id);
-                      setNoteContent('');
-                      setShowNoteModal(true);
-                    }}
-                    className="clay-btn clay-btn-secondary py-2.5 px-3 text-xs sm:text-sm rounded-xl"
-                    title="Add progress note"
-                  >
-                    <MessageSquare size={13} />
-                    <span>Note</span>
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={() => handleAction('START_BREAK')}
-                    disabled={loadingAction}
-                    className="clay-btn clay-btn-warning py-2.5 px-4 text-xs sm:text-sm rounded-xl"
-                  >
-                    <Coffee size={14} />
-                    <span>Start Break</span>
-                  </button>
-
-                  <button
-                    onClick={() => setShowEndAndNextModal(true)}
-                    disabled={loadingAction}
-                    className="clay-btn clay-btn-primary py-2.5 px-4 text-xs sm:text-sm rounded-xl"
+                    className="clay-btn clay-btn-primary py-2 px-3 text-xs rounded-xl font-semibold min-h-[38px]"
                   >
                     <span>Switch Task</span>
-                    <ArrowRight size={14} />
-                  </button>
-
-                  <button
-                    onClick={handleStopActiveTask}
-                    disabled={loadingAction}
-                    className="clay-btn clay-btn-secondary py-2.5 px-4 text-xs sm:text-sm rounded-xl"
-                    title="Stop task timer (Leaves task In Progress)"
-                  >
-                    <Pause size={14} />
-                    <span>Stop Task</span>
+                    <ArrowRight size={13} />
                   </button>
 
                   <button
                     onClick={handleCompleteActiveTask}
                     disabled={loadingAction}
-                    className="clay-btn clay-btn-success py-2.5 px-4 text-xs sm:text-sm rounded-xl font-bold"
+                    className="clay-btn clay-btn-success py-2 px-3 text-xs rounded-xl font-bold min-h-[38px]"
                     title="Explicitly complete task and close work session"
                   >
-                    <CheckCircle2 size={14} />
+                    <CheckCircle2 size={13} />
                     <span>Mark Completed</span>
                   </button>
 
-                  <button
-                    onClick={() => {
-                      setNoteTargetTaskId(activeTask.project_task_id || activeTask.task_id);
-                      setNoteContent('');
-                      setShowNoteModal(true);
-                    }}
-                    className="clay-btn clay-btn-secondary py-2.5 px-3 text-xs sm:text-sm rounded-xl"
-                    title="Add progress note"
-                  >
-                    <MessageSquare size={13} />
-                    <span>Note</span>
-                  </button>
-                </>
-              )}
+                  {/* More Actions Group */}
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <button
+                      onClick={() => {
+                        setNoteTargetTaskId(activeTask.project_task_id || activeTask.task_id);
+                        setNoteContent('');
+                        setShowNoteModal(true);
+                      }}
+                      className="clay-btn clay-btn-secondary py-2 px-2.5 text-xs rounded-xl min-h-[38px]"
+                      title="Add progress note"
+                    >
+                      <MessageSquare size={12} />
+                      <span>Note</span>
+                    </button>
 
-              <button
-                onClick={() => openEditModal(activeTask)}
-                className="clay-btn clay-btn-secondary py-2 px-3 text-xs rounded-xl ml-auto"
-              >
-                <Edit2 size={13} />
-                <span>Edit Details</span>
-              </button>
-            </div>
-          </div>
-        ) : (
-          /* When NO task is active */
-          <div className="clay-card p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3.5">
-              <div className="w-11 h-11 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 shadow-inner">
-                <Briefcase size={20} />
+                    <button
+                      onClick={() => openEditModal(activeTask)}
+                      className="clay-btn clay-btn-secondary py-2 px-2.5 text-xs rounded-xl min-h-[38px]"
+                      title="Edit task details"
+                    >
+                      <Edit2 size={12} />
+                      <span>Edit</span>
+                    </button>
+                  </div>
+                </div>
               </div>
-              <div>
-                <h4 className="font-bold text-slate-900 text-sm sm:text-base">
-                  {status === 'On Break' ? 'On Break (No Active Task)' : 'No Task in Progress'}
-                </h4>
-                <p className="text-xs text-slate-500 mt-0.5 font-medium">
-                  {status === 'Working' 
-                    ? 'Start tracking a specific task or project to log your hours accurately.' 
-                    : status === 'On Break'
-                    ? 'You are on break. Starting a new task will automatically end your break and start work.'
-                    : 'Clock in to begin logging tasks and project durations.'}
-                </p>
-              </div>
-            </div>
+            ) : (
+              /* When NO task is active */
+              <div className="clay-card p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 shadow-inner">
+                    <Briefcase size={18} />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-xs sm:text-sm">
+                      {status === 'On Break' ? 'On Break (No Active Task)' : 'No Task in Progress'}
+                    </h4>
+                    <p className="text-[11px] text-slate-500 mt-0.5 font-medium leading-normal">
+                      {status === 'Working' 
+                        ? 'Start tracking a specific task or project to log your hours accurately.' 
+                        : status === 'On Break'
+                        ? 'You are on break. Starting a new task will automatically end your break and start work.'
+                        : 'Clock in to begin logging tasks and project durations.'}
+                    </p>
+                  </div>
+                </div>
 
-            {(status === 'Working' || status === 'On Break') && (
-              <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-                {status === 'On Break' && (
-                  <button
-                    onClick={() => handleAction('RESUME_WORK')}
-                    disabled={loadingAction}
-                    className="clay-btn clay-btn-secondary py-2.5 px-4 text-xs sm:text-sm rounded-xl"
-                  >
-                    <Play size={14} className="fill-indigo-700 text-indigo-700" />
-                    <span>Resume Work</span>
-                  </button>
+                {(status === 'Working' || status === 'On Break') && (
+                  <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+                    {status === 'On Break' && (
+                      <button
+                        onClick={() => handleAction('RESUME_WORK')}
+                        disabled={loadingAction}
+                        className="clay-btn clay-btn-secondary py-2 px-3 text-xs rounded-xl font-medium"
+                      >
+                        <Play size={13} className="fill-indigo-700 text-indigo-700" />
+                        <span>Resume Work</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setTaskForm({ project_name: '', task_name: '', description: '', project_status: 'JUST_STARTED' });
+                        setShowNewTaskModal(true);
+                      }}
+                      disabled={loadingAction}
+                      className="clay-btn clay-btn-primary py-2 px-3.5 text-xs font-bold rounded-xl shadow-xs"
+                    >
+                      <Plus size={15} />
+                      <span>Start New Task</span>
+                    </button>
+                  </div>
                 )}
-                <button
-                  onClick={() => {
-                    setTaskForm({ project_name: '', task_name: '', description: '' });
-                    setShowNewTaskModal(true);
-                  }}
-                  disabled={loadingAction}
-                  className="clay-btn clay-btn-primary py-2.5 px-5 text-xs sm:text-sm rounded-xl"
-                >
-                  <Plus size={16} />
-                  <span>Start New Task</span>
-                </button>
               </div>
             )}
           </div>
-        )}
 
-        {/* 5. TODAY'S TASKS LIST & REAL-TIME ANALYSIS DASHBOARD */}
-        <div className="space-y-4">
-          {/* Segmented View Mode Switcher */}
-          <div className="clay-card-flat p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="inline-flex rounded-xl bg-slate-200/50 p-1 flex-wrap gap-1">
-              <button
-                type="button"
-                onClick={() => setWorkViewMode('projects')}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
-                  workViewMode === 'projects'
-                    ? 'bg-white text-indigo-700 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Briefcase size={15} />
-                <span>My Projects & Tasks</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setWorkViewMode('tasks')}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
-                  workViewMode === 'tasks'
-                    ? 'bg-white text-indigo-700 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <ListTodo size={15} />
-                <span>Task Log & Entries ({dailyTasks.length})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setWorkViewMode('analytics')}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
-                  workViewMode === 'analytics'
-                    ? 'bg-white text-indigo-700 shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <TrendingUp size={15} />
-                <span>Real-Time Analysis Dashboard</span>
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2 self-start sm:self-auto">
-              <label className="text-xs font-bold text-slate-600">Date:</label>
-              <input
-                type="date"
-                value={selectedTaskDate}
-                onChange={(e) => setSelectedTaskDate(e.target.value)}
-                className="clay-input text-sm font-mono font-medium min-h-[44px]"
-              />
-              {selectedTaskDate !== getTodayIsoDate() && (
+          {/* ============================================================== */}
+          {/* RIGHT COLUMN: Tasks List, Task History & Analytics (~60%)       */}
+          {/* ============================================================== */}
+          <div className="flex flex-col gap-3 min-h-0 lg:overflow-hidden">
+            
+            {/* Segmented View Mode Switcher + Date Selector (Pinned above results) */}
+            <div className="clay-card-flat p-2 sm:p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0">
+              <div className="inline-flex rounded-xl bg-slate-200/50 p-1 flex-wrap gap-1">
                 <button
                   type="button"
-                  onClick={() => setSelectedTaskDate(getTodayIsoDate())}
-                  className="clay-btn clay-btn-secondary px-3 min-h-[44px] text-xs font-bold rounded-xl"
-                  title="Switch to Today"
+                  onClick={() => setWorkViewMode('tasks')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                    workViewMode === 'tasks'
+                      ? 'bg-white text-indigo-700 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
                 >
-                  Today
+                  <ListTodo size={14} />
+                  <span>Today's Tasks ({dailyTasks.length})</span>
                 </button>
-              )}
-            </div>
-          </div>
-
-          {/* View Mode A: My Projects & Tasks */}
-          {workViewMode === 'projects' ? (
-            <div className="space-y-4 animate-in fade-in duration-200">
-              <EmployeeProjectTasks onTimerSync={fetchStatus} />
-            </div>
-          ) : workViewMode === 'analytics' ? (
-            <div className="clay-card p-5 sm:p-7 space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/60">
-                <div>
-                  <h3 className="font-bold text-base sm:text-lg text-slate-900 flex items-center gap-2">
-                    <TrendingUp size={18} className="text-indigo-600" />
-                    <span>Personal Real-Time Task Analytics</span>
-                  </h3>
-                  <p className="text-xs text-slate-500 font-medium">
-                    Live charts and performance breakdown for your tracked workday ({formatDisplayDate(selectedTaskDate)})
-                  </p>
-                </div>
-                {projectBreakdown.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs font-bold text-slate-600">Filter Project:</label>
-                    <select
-                      value={taskFilterProject}
-                      onChange={(e) => setTaskFilterProject(e.target.value)}
-                      className="clay-input text-sm font-medium min-h-[44px] min-w-[160px]"
-                    >
-                      <option value="">All Projects</option>
-                      {projectBreakdown.map((p) => (
-                        <option key={p.project_name} value={p.project_name}>
-                          {p.project_name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setWorkViewMode('projects')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                    workViewMode === 'projects'
+                      ? 'bg-white text-indigo-700 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <History size={14} />
+                  <span>Task History</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWorkViewMode('analytics')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                    workViewMode === 'analytics'
+                      ? 'bg-white text-indigo-700 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <TrendingUp size={14} />
+                  <span>Analytics</span>
+                </button>
               </div>
 
-              <DailyTaskAnalyticsDashboard
-                data={taskReportData}
-                filterDate={selectedTaskDate}
-                filterEmpId=""
-                filterProject={taskFilterProject}
-                onClearFilters={() => {
-                  setTaskFilterProject('');
-                }}
-                onSetToday={() => {
-                  setSelectedTaskDate(getTodayIsoDate());
-                }}
-                isLoading={loadingTasks}
-              />
-            </div>
-          ) : (
-            /* View Mode B: Detailed Tasks List & Project Summary */
-            <div className="clay-card p-6 sm:p-7 space-y-5">
-              {/* Header & Date Selector */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200/60">
-                <div>
-                  <h3 className="font-bold text-base sm:text-lg text-slate-900">Recorded Tasks</h3>
-                  <p className="text-xs text-slate-500 font-medium">Daily time entries and completed work sessions</p>
-                </div>
-
-                {projectBreakdown.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs font-bold text-slate-600">Filter Project:</label>
-                    <select
-                      value={taskFilterProject}
-                      onChange={(e) => setTaskFilterProject(e.target.value)}
-                      className="clay-input text-sm font-medium min-h-[44px] min-w-[160px]"
-                    >
-                      <option value="">All Projects</option>
-                      {projectBreakdown.map((p) => (
-                        <option key={p.project_name} value={p.project_name}>
-                          {p.project_name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                <label className="text-xs font-bold text-slate-600">Date:</label>
+                <input
+                  type="date"
+                  value={selectedTaskDate}
+                  onChange={(e) => setSelectedTaskDate(e.target.value)}
+                  className="clay-input text-xs font-mono font-medium py-1.5 px-2.5 min-h-[36px]"
+                />
+                {selectedTaskDate !== getTodayIsoDate() && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTaskDate(getTodayIsoDate())}
+                    className="clay-btn clay-btn-secondary px-2.5 py-1.5 min-h-[36px] text-xs font-bold rounded-xl"
+                    title="Switch to Today"
+                  >
+                    Today
+                  </button>
                 )}
               </div>
+            </div>
 
-              {/* Project Summary Strip */}
-              <div className="clay-inset-well p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Tracked Time:</span>
-                  <span className="ml-2 font-mono text-base font-bold text-slate-900">{totalTaskFormatted}</span>
+            {/* View Mode A: Task History */}
+            {workViewMode === 'projects' ? (
+              <div className="flex-1 min-h-0 flex flex-col overflow-y-auto pr-1">
+                <EmployeeProjectTasks onTimerSync={fetchStatus} />
+              </div>
+            ) : workViewMode === 'analytics' ? (
+              /* View Mode C: Analytics */
+              <div className="flex-1 min-h-0 flex flex-col overflow-y-auto pr-1">
+                <div className="clay-card p-4 sm:p-5 space-y-5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/60">
+                    <div>
+                      <h3 className="font-bold text-base sm:text-lg text-slate-900 flex items-center gap-2">
+                        <TrendingUp size={18} className="text-indigo-600" />
+                        <span>Personal Real-Time Task Analytics</span>
+                      </h3>
+                      <p className="text-xs text-slate-500 font-medium">
+                        Live charts and performance breakdown for your tracked workday ({formatDisplayDate(selectedTaskDate)})
+                      </p>
+                    </div>
+                    {projectBreakdown.length > 0 && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs font-bold text-slate-600">Filter Project:</label>
+                        <select
+                          value={taskFilterProject}
+                          onChange={(e) => setTaskFilterProject(e.target.value)}
+                          className="clay-input text-xs font-medium py-1.5 px-2.5 min-w-[150px]"
+                        >
+                          <option value="">All Projects</option>
+                          {projectBreakdown.map((p) => (
+                            <option key={p.project_name} value={p.project_name}>
+                              {p.project_name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
+                  <DailyTaskAnalyticsDashboard
+                    data={taskReportData}
+                    filterDate={selectedTaskDate}
+                    filterEmpId=""
+                    filterProject={taskFilterProject}
+                    onClearFilters={() => {
+                      setTaskFilterProject('');
+                    }}
+                    onSetToday={() => {
+                      setSelectedTaskDate(getTodayIsoDate());
+                    }}
+                    isLoading={loadingTasks}
+                  />
                 </div>
+              </div>
+            ) : (
+              /* View Mode B: Detailed Tasks List & Project Summary */
+              <div className="clay-card p-4 sm:p-5 flex-1 min-h-0 flex flex-col">
+                {/* Header & Filter (Pinned) */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/60 shrink-0">
+                  <div>
+                    <h3 className="font-bold text-sm sm:text-base text-slate-900">Recorded Tasks</h3>
+                    <p className="text-[11px] text-slate-500 font-medium">Daily time entries and completed work sessions</p>
+                  </div>
 
-                {projectBreakdown.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    {projectBreakdown.map((pb, idx) => (
-                      <span 
-                        key={idx}
-                        className="clay-card-flat inline-flex items-center gap-1.5 px-3 py-1 text-xs text-slate-700"
+                  {projectBreakdown.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-bold text-slate-600">Filter Project:</label>
+                      <select
+                        value={taskFilterProject}
+                        onChange={(e) => setTaskFilterProject(e.target.value)}
+                        className="clay-input text-xs font-medium py-1.5 px-2.5 min-w-[150px]"
                       >
-                        <span className="font-semibold text-slate-900">{pb.project_name}:</span>
-                        <span className="font-mono text-indigo-600 font-bold">{pb.duration_formatted}</span>
-                      </span>
+                        <option value="">All Projects</option>
+                        {projectBreakdown.map((p) => (
+                          <option key={p.project_name} value={p.project_name}>
+                            {p.project_name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {/* Project Summary Strip (Pinned) */}
+                <div className="clay-inset-well p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 my-3 shrink-0">
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Tracked Time:</span>
+                    <span className="ml-2 font-mono text-sm sm:text-base font-bold text-slate-900">{totalTaskFormatted}</span>
+                  </div>
+
+                  {projectBreakdown.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {projectBreakdown.map((pb, idx) => (
+                        <span 
+                          key={idx}
+                          className="clay-card-flat inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs text-slate-700"
+                        >
+                          <span className="font-semibold text-slate-900 text-[11px]">{pb.project_name}:</span>
+                          <span className="font-mono text-indigo-600 font-bold text-[11px]">{pb.duration_formatted}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Tasks List (Scrollable independently) */}
+                {loadingTasks ? (
+                  <div className="text-center py-8 text-slate-500 text-xs sm:text-sm font-medium">Loading task entries...</div>
+                ) : dailyTasks.length === 0 ? (
+                  <div className="text-center py-10 clay-inset-well rounded-2xl border-dashed text-slate-500 text-xs sm:text-sm font-medium">
+                    No tasks recorded for {formatDisplayDate(selectedTaskDate)}.
+                  </div>
+                ) : (
+                  <div className="flex-1 min-h-0 overflow-y-auto pr-1 divide-y divide-slate-100">
+                    {dailyTasks.map((t) => (
+                      <div key={t.task_log_id} className="py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:bg-slate-50/70 transition px-2 rounded-xl">
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <span className="w-5 h-5 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-600 shrink-0 mt-0.5">
+                            {t.sr_no}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="clay-pill clay-pill-indigo text-[10px] py-0 px-1.5 truncate max-w-[140px]">
+                                {t.project_name}
+                              </span>
+                              <h4 className="text-xs sm:text-sm font-bold text-slate-900 truncate">{t.task_name}</h4>
+                              <span className={`clay-pill text-[9px] py-0 px-1.5 ${
+                                t.status === 'IN_PROGRESS' 
+                                  ? 'clay-pill-warning' 
+                                  : 'clay-pill-success'
+                              }`}>
+                                {t.status === 'IN_PROGRESS' ? 'In Progress' : 'Completed'}
+                              </span>
+                            </div>
+                            {t.description && (
+                              <p className="text-[11px] text-slate-500 mt-0.5 font-medium line-clamp-1">{t.description}</p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between sm:justify-end gap-2 pl-7 sm:pl-0 shrink-0 flex-wrap">
+                          <div className="text-right mr-1 sm:mr-2">
+                            <p className="font-mono text-xs font-bold text-slate-900">{t.duration_formatted}</p>
+                            <p className="text-[10px] text-slate-400 font-medium font-mono">
+                              {t.start_time_formatted} — {t.end_time_formatted}
+                            </p>
+                          </div>
+
+                          {/* Mark completed if unfinished */}
+                          {t.status !== 'COMPLETED' && (
+                            <button
+                              onClick={() => handleCompleteTaskFromList(t)}
+                              disabled={loadingAction}
+                              className="px-2 py-1 text-[11px] font-bold rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 flex items-center gap-1 transition"
+                              title="Mark as Completed"
+                            >
+                              <Check size={11} />
+                              <span>Complete</span>
+                            </button>
+                          )}
+
+                          {/* Add Progress Note */}
+                          <button
+                            onClick={() => {
+                              setNoteTargetTaskId(t.project_task_id || t.task_id);
+                              setNoteContent('');
+                              setShowNoteModal(true);
+                            }}
+                            className="px-2 py-1 text-[11px] font-medium rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 flex items-center gap-1 transition"
+                            title="Add Progress Note"
+                          >
+                            <MessageSquare size={11} />
+                            <span>Note</span>
+                          </button>
+
+                          <button
+                            onClick={() => openEditModal(t)}
+                            className="clay-btn clay-btn-secondary px-2 py-1 text-[11px] font-semibold rounded-lg"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 )}
               </div>
-
-              {/* Tasks List */}
-              {loadingTasks ? (
-                <div className="text-center py-8 text-slate-500 text-xs sm:text-sm font-medium">Loading task entries...</div>
-              ) : dailyTasks.length === 0 ? (
-                <div className="text-center py-10 clay-inset-well rounded-2xl border-dashed text-slate-500 text-xs sm:text-sm font-medium">
-                  No tasks recorded for {formatDisplayDate(selectedTaskDate)}.
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  {dailyTasks.map((t) => (
-                    <div key={t.task_log_id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition px-2 rounded-xl">
-                      <div className="flex items-start gap-3">
-                        <span className="w-6 h-6 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-[11px] font-bold text-slate-600 shrink-0 mt-0.5">
-                          {t.sr_no}
-                        </span>
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="clay-pill clay-pill-indigo text-[11px] py-0 px-2">
-                              {t.project_name}
-                            </span>
-                            <h4 className="text-sm font-bold text-slate-900">{t.task_name}</h4>
-                            <span className={`clay-pill text-[10px] py-0 px-2 ${
-                              t.status === 'IN_PROGRESS' 
-                                ? 'clay-pill-warning' 
-                                : 'clay-pill-success'
-                            }`}>
-                              {t.status === 'IN_PROGRESS' ? 'In Progress' : 'Completed'}
-                            </span>
-                          </div>
-                          {t.description && (
-                            <p className="text-xs text-slate-600 mt-1 font-medium">{t.description}</p>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between sm:justify-end gap-2 pl-9 sm:pl-0 shrink-0 flex-wrap">
-                        <div className="text-right mr-2">
-                          <p className="font-mono text-xs font-bold text-slate-900">{t.duration_formatted}</p>
-                          <p className="text-[11px] text-slate-500 font-medium">
-                            {t.start_time_formatted} — {t.end_time_formatted}
-                          </p>
-                        </div>
-
-                        {/* Resume button if unfinished and not active */}
-                        {t.status !== 'COMPLETED' && (!activeTask || activeTask.task_log_id !== t.task_log_id) && (
-                          <button
-                            onClick={() => handleResumeTask(t)}
-                            disabled={loadingAction}
-                            className="px-2.5 py-1 text-xs font-bold rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 flex items-center gap-1 transition"
-                            title="Resume this task"
-                          >
-                            <Play size={11} />
-                            <span>Resume</span>
-                          </button>
-                        )}
-
-                        {/* Mark completed if unfinished */}
-                        {t.status !== 'COMPLETED' && (
-                          <button
-                            onClick={() => handleCompleteTaskFromList(t)}
-                            disabled={loadingAction}
-                            className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 flex items-center gap-1 transition"
-                            title="Mark as Completed"
-                          >
-                            <Check size={11} />
-                            <span>Complete</span>
-                          </button>
-                        )}
-
-                        {/* Reopen task if completed */}
-                        {t.status === 'COMPLETED' && (
-                          <button
-                            onClick={() => {
-                              setReopenTargetTaskId(t.project_task_id || t.task_id);
-                              setReopenReason('');
-                              setShowReopenModal(true);
-                            }}
-                            disabled={loadingAction}
-                            className="px-2.5 py-1 text-xs font-bold rounded-lg bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 flex items-center gap-1 transition"
-                            title="Reopen task (requires reason)"
-                          >
-                            <RotateCcw size={11} />
-                            <span>Reopen</span>
-                          </button>
-                        )}
-
-                        {/* Add Progress Note */}
-                        <button
-                          onClick={() => {
-                            setNoteTargetTaskId(t.project_task_id || t.task_id);
-                            setNoteContent('');
-                            setShowNoteModal(true);
-                          }}
-                          className="px-2 py-1 text-xs font-medium rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 flex items-center gap-1 transition"
-                          title="Add Progress Note"
-                        >
-                          <MessageSquare size={11} />
-                          <span>Note</span>
-                        </button>
-
-                        <button
-                          onClick={() => openEditModal(t)}
-                          className="clay-btn clay-btn-secondary px-2.5 py-1 text-xs font-semibold rounded-lg"
-                        >
-                          Edit
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </main>
 
@@ -1600,7 +1624,7 @@ export default function Tracker() {
       {/* ======================================================== */}
       {showStartWorkdayPrompt && (
         <div className="clay-modal-overlay">
-          <div className="clay-modal-dialog p-6 sm:p-8 max-w-md w-full">
+          <div className="clay-modal-dialog p-6 sm:p-8 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold text-slate-900 tracking-tight">Start Workday</h3>
             <p className="text-xs text-slate-500 mt-1 mb-5 font-medium">
               Enter your initial project and task details to clock in.
@@ -1617,7 +1641,7 @@ export default function Tracker() {
                   list="start-project-suggestions"
                   placeholder="Select existing project or enter new name..."
                   value={taskForm.project_name}
-                  onChange={(e) => setTaskForm({ ...taskForm, project_name: e.target.value })}
+                  onChange={(e) => handleProjectNameChange(e.target.value)}
                   className="clay-input w-full px-3.5 py-2.5 text-sm placeholder-slate-400 font-medium"
                 />
                 <datalist id="start-project-suggestions">
@@ -1667,18 +1691,27 @@ export default function Tracker() {
                 })()}
               </div>
 
+              <TaskNameSelector
+                value={taskForm.task_name}
+                onChange={(val) => setTaskForm({ ...taskForm, task_name: val })}
+                jobFunction={currentJobFunction}
+                disabled={loadingAction}
+              />
+
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                  Task Name <span className="text-rose-500 font-bold">* Required</span>
+                  My Project Status <span className="text-rose-500 font-bold">* Required</span>
                 </label>
-                <input
-                  type="text"
+                <select
                   required
-                  placeholder="e.g. Preparing client requirements"
-                  value={taskForm.task_name}
-                  onChange={(e) => setTaskForm({ ...taskForm, task_name: e.target.value })}
-                  className="clay-input w-full px-3.5 py-2.5 text-sm placeholder-slate-400 font-medium"
-                />
+                  value={taskForm.project_status}
+                  onChange={(e) => setTaskForm({ ...taskForm, project_status: e.target.value })}
+                  className="clay-input w-full px-3.5 py-2.5 text-sm font-medium cursor-pointer"
+                >
+                  <option value="JUST_STARTED">Just Started</option>
+                  <option value="IN_PROGRESS">In Progress</option>
+                  <option value="COMPLETED">Completed</option>
+                </select>
               </div>
 
               <div>
@@ -1720,7 +1753,7 @@ export default function Tracker() {
       {/* ======================================================== */}
       {showNewTaskModal && (
         <div className="clay-modal-overlay">
-          <div className="clay-modal-dialog p-6 sm:p-8 max-w-md w-full">
+          <div className="clay-modal-dialog p-6 sm:p-8 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold text-slate-900 tracking-tight">Start New Task</h3>
             <p className="text-xs text-slate-500 mt-1 mb-5 font-medium">
               Enter your project and task details to start tracking time.
@@ -1737,7 +1770,7 @@ export default function Tracker() {
                   list="new-project-suggestions"
                   placeholder="Select existing project or enter new name..."
                   value={taskForm.project_name}
-                  onChange={(e) => setTaskForm({ ...taskForm, project_name: e.target.value })}
+                  onChange={(e) => handleProjectNameChange(e.target.value)}
                   className="clay-input w-full px-3.5 py-2.5 text-sm placeholder-slate-400 font-medium"
                 />
                 <datalist id="new-project-suggestions">
@@ -1787,20 +1820,31 @@ export default function Tracker() {
                 })()}
               </div>
 
+              <TaskNameSelector
+                value={taskForm.task_name}
+                onChange={(val) => setTaskForm({ ...taskForm, task_name: val })}
+                jobFunction={currentJobFunction}
+                disabled={loadingAction}
+              />
+
+              {/* 3. My Project Status - required dropdown */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                  Task Name <span className="text-rose-500 font-bold">* Required</span>
+                  My Project Status <span className="text-rose-500 font-bold">* Required</span>
                 </label>
-                <input
-                  type="text"
+                <select
                   required
-                  placeholder="e.g. Building analytics page"
-                  value={taskForm.task_name}
-                  onChange={(e) => setTaskForm({ ...taskForm, task_name: e.target.value })}
-                  className="clay-input w-full px-3.5 py-2.5 text-sm placeholder-slate-400 font-medium"
-                />
+                  value={taskForm.project_status}
+                  onChange={(e) => setTaskForm({ ...taskForm, project_status: e.target.value })}
+                  className="clay-input w-full px-3.5 py-2.5 text-sm font-medium cursor-pointer"
+                >
+                  <option value="JUST_STARTED">Just Started</option>
+                  <option value="IN_PROGRESS">In Progress</option>
+                  <option value="COMPLETED">Completed</option>
+                </select>
               </div>
 
+              {/* 4. Description - optional */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                   Description <span className="text-slate-400 font-normal lowercase">(Optional)</span>
@@ -1840,7 +1884,7 @@ export default function Tracker() {
       {/* ======================================================== */}
       {showEndAndNextModal && activeTask && (
         <div className="clay-modal-overlay">
-          <div className="clay-modal-dialog p-6 sm:p-8 max-w-md w-full">
+          <div className="clay-modal-dialog p-6 sm:p-8 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold text-slate-900 tracking-tight">Switch to Next Task</h3>
             <p className="text-xs text-slate-500 mt-1 mb-4 font-medium">
               Completes the active task and immediately begins your next one.
@@ -1861,23 +1905,33 @@ export default function Tracker() {
                   required
                   placeholder="e.g. Project Beta"
                   value={nextTaskForm.project_name}
-                  onChange={(e) => setNextTaskForm({ ...nextTaskForm, project_name: e.target.value })}
+                  onChange={(e) => handleNextProjectNameChange(e.target.value)}
                   className="clay-input w-full px-3.5 py-2.5 text-sm placeholder-slate-400 font-medium"
                 />
               </div>
 
+              <TaskNameSelector
+                label="Next Task Name"
+                value={nextTaskForm.task_name}
+                onChange={(val) => setNextTaskForm({ ...nextTaskForm, task_name: val })}
+                jobFunction={currentJobFunction}
+                disabled={loadingAction}
+              />
+
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                  Next Task Name <span className="text-rose-500 font-bold">* Required</span>
+                  My Project Status <span className="text-rose-500 font-bold">* Required</span>
                 </label>
-                <input
-                  type="text"
+                <select
                   required
-                  placeholder="e.g. Drafting presentation"
-                  value={nextTaskForm.task_name}
-                  onChange={(e) => setNextTaskForm({ ...nextTaskForm, task_name: e.target.value })}
-                  className="clay-input w-full px-3.5 py-2.5 text-sm placeholder-slate-400 font-medium"
-                />
+                  value={nextTaskForm.project_status}
+                  onChange={(e) => setNextTaskForm({ ...nextTaskForm, project_status: e.target.value })}
+                  className="clay-input w-full px-3.5 py-2.5 text-sm font-medium cursor-pointer"
+                >
+                  <option value="JUST_STARTED">Just Started</option>
+                  <option value="IN_PROGRESS">In Progress</option>
+                  <option value="COMPLETED">Completed</option>
+                </select>
               </div>
 
               <div>
@@ -1919,7 +1973,7 @@ export default function Tracker() {
       {/* ======================================================== */}
       {showEditTaskModal && editingTask && (
         <div className="clay-modal-overlay">
-          <div className="clay-modal-dialog p-6 sm:p-8 max-w-md w-full">
+          <div className="clay-modal-dialog p-6 sm:p-8 max-w-md w-full max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold text-slate-900 tracking-tight">Edit Task Details</h3>
             <p className="text-xs text-slate-500 mt-1 mb-4 font-medium">
               Update project name, task title, or notes.
@@ -1957,17 +2011,27 @@ export default function Tracker() {
                 />
               </div>
 
+              <TaskNameSelector
+                value={editTaskForm.task_name}
+                onChange={(val) => setEditTaskForm({ ...editTaskForm, task_name: val })}
+                jobFunction={currentJobFunction}
+                disabled={loadingAction}
+              />
+
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                  Task Name <span className="text-rose-500 font-bold">* Required</span>
+                  My Project Status <span className="text-rose-500 font-bold">* Required</span>
                 </label>
-                <input
-                  type="text"
+                <select
                   required
-                  value={editTaskForm.task_name}
-                  onChange={(e) => setEditTaskForm({ ...editTaskForm, task_name: e.target.value })}
-                  className="clay-input w-full px-3.5 py-2.5 text-sm font-medium"
-                />
+                  value={editTaskForm.project_status || 'JUST_STARTED'}
+                  onChange={(e) => setEditTaskForm({ ...editTaskForm, project_status: e.target.value })}
+                  className="clay-input w-full px-3.5 py-2.5 text-sm font-medium cursor-pointer"
+                >
+                  <option value="JUST_STARTED">Just Started</option>
+                  <option value="IN_PROGRESS">In Progress</option>
+                  <option value="COMPLETED">Completed</option>
+                </select>
               </div>
 
               <div>
@@ -2032,62 +2096,6 @@ export default function Tracker() {
         </div>
       )}
 
-      {/* ======================================================== */}
-      {/* MODAL 6: REOPEN TASK (REASON REQUIRED) */}
-      {/* ======================================================== */}
-      {showReopenModal && (
-        <div className="clay-modal-overlay">
-          <div className="clay-modal-dialog p-6 sm:p-7 max-w-md w-full">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                <RotateCcw size={16} className="text-amber-600" />
-                <span>Reopen Completed Task</span>
-              </h3>
-              <button onClick={() => setShowReopenModal(false)} className="p-1 text-slate-400 hover:text-slate-700">
-                <X size={16} />
-              </button>
-            </div>
-
-            <form onSubmit={handleReopenTaskSubmit} className="space-y-4 pt-3">
-              <p className="text-xs text-slate-600 leading-relaxed font-medium">
-                Reopening this task will reset its status to <strong>In Progress</strong> and allow you to log further time.
-                A mandatory reason is required to maintain audit history.
-              </p>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                  Reason for Reopening <span className="text-rose-500 font-bold">* Required</span>
-                </label>
-                <textarea
-                  required
-                  rows={3}
-                  placeholder="e.g. Additional client feedback received; bug fixes required..."
-                  value={reopenReason}
-                  onChange={(e) => setReopenReason(e.target.value)}
-                  className="clay-input w-full p-3 text-sm font-medium"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowReopenModal(false)}
-                  className="clay-btn clay-btn-secondary px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={loadingAction}
-                  className="clay-btn bg-amber-600 hover:bg-amber-700 text-white px-5 py-2 text-xs sm:text-sm font-bold rounded-xl shadow-xs"
-                >
-                  {loadingAction ? 'Reopening...' : 'Confirm Reopen'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* ======================================================== */}
       {/* MODAL 7: ADD PROGRESS NOTE */}
