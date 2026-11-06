@@ -86,5 +86,8 @@ urlpatterns = [
     # Extension Distribution
     path('extension/version/', views.extension_version_view, name='extension_version'),
     path('extension/download/', views.extension_download_view, name='extension_download'),
+
+    # System & Database Management
+    path('admin/system/reset-tracking-data/', views.admin_reset_tracking_data_view, name='admin_reset_tracking_data'),
 ]
 

@@ -6810,3 +6810,29 @@ def employee_project_status_view(request):
         'updated_at': eps.updated_at.isoformat(),
         'updated_at_display': format_ist_unambiguous_datetime(eps.updated_at)
     })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def admin_reset_tracking_data_view(request):
+    """
+    Safely backs up and resets all TimeTracker attendance, task, and project tracking
+    records in the active database. Preserves user accounts, credentials, and settings.
+    Requires ADMIN role and confirmation string.
+    """
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Unauthorized. Admin privileges required.'}, status=403)
+
+    confirmation = request.data.get('confirmation', '').strip()
+    if confirmation != 'RESET_TRACKING_DATA_CONFIRMED':
+        return Response({
+            'error': 'Missing or invalid confirmation. To execute reset, provide "confirmation": "RESET_TRACKING_DATA_CONFIRMED".'
+        }, status=400)
+
+    try:
+        from .reset_service import execute_safe_tracking_reset
+        result = execute_safe_tracking_reset(actor_username=request.user.username)
+        return Response(result, status=200)
+    except Exception as e:
+        return Response({'error': f'Reset failed: {str(e)}'}, status=500)
+
