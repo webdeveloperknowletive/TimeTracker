@@ -295,6 +295,29 @@ class TimeEventStorage:
                 task.status = 'PAUSED'
                 task.updated_at = pause_time_iso
                 task.save()
+
+                # Sync WorkSession and ProjectTask atomically
+                try:
+                    from .models import WorkSession, ProjectTask
+                    ws = None
+                    if task.project_task_id:
+                        ws = WorkSession.objects.filter(task__task_id=task.project_task_id, user_id=user_id, status='IN_PROGRESS').first()
+                    if not ws:
+                        ws = WorkSession.objects.filter(user_id=user_id, status='IN_PROGRESS').first()
+                    if ws:
+                        ws.duration_seconds = task.duration_seconds
+                        ws.work_segments = task.work_segments
+                        ws.current_segment_start = None
+                        ws.status = 'PAUSED'
+                        ws.updated_at = pause_time_iso
+                        ws.save()
+                    if task.project_task_id:
+                        pt = ProjectTask.objects.filter(task_id=task.project_task_id).first()
+                        if pt:
+                            pt.total_duration_seconds += seg_sec
+                            pt.save()
+                except Exception as e:
+                    logger.error(f"Error syncing WorkSession on pause: {e}")
                 
                 t_dict = list(TaskLog.objects.filter(task_id=task.task_id).values())[0]
                 t_dict['task_log_id'] = t_dict.pop('task_id')
@@ -311,6 +334,23 @@ class TimeEventStorage:
                 task.current_segment_start = resume_time_iso
                 task.updated_at = resume_time_iso
                 task.save()
+
+                # Sync WorkSession atomically
+                try:
+                    from .models import WorkSession
+                    ws = None
+                    if task.project_task_id:
+                        ws = WorkSession.objects.filter(task__task_id=task.project_task_id, user_id=user_id, status='PAUSED').first()
+                    if not ws:
+                        ws = WorkSession.objects.filter(user_id=user_id, status='PAUSED').first()
+                    if ws:
+                        ws.status = 'IN_PROGRESS'
+                        ws.current_segment_start = resume_time_iso
+                        ws.updated_at = resume_time_iso
+                        ws.save()
+                except Exception as e:
+                    logger.error(f"Error syncing WorkSession on resume: {e}")
+
                 t_dict = list(TaskLog.objects.filter(task_id=task.task_id).values())[0]
                 t_dict['task_log_id'] = t_dict.pop('task_id')
                 return t_dict
@@ -355,9 +395,9 @@ class TimeEventStorage:
             task.updated_at = now_utc
             task.save()
 
-            if task.project_task_id:
-                try:
-                    from .models import ProjectTask, WorkSession, User
+            try:
+                from .models import ProjectTask, WorkSession, User
+                if task.project_task_id:
                     p_task = ProjectTask.objects.filter(task_id=task.project_task_id).first()
                     if p_task:
                         p_task.total_duration_seconds += seg_sec
@@ -369,16 +409,18 @@ class TimeEventStorage:
                                 p_task.completed_by = user_obj
                         p_task.save()
 
-                    ws = WorkSession.objects.filter(task_log_id=task.task_id).first()
-                    if ws:
-                        ws.duration_seconds = task.duration_seconds
-                        ws.work_segments = task.work_segments
-                        ws.current_segment_start = None
-                        ws.end_time = now_utc
-                        ws.status = 'ENDED'
-                        ws.save()
-                except Exception:
-                    pass
+                ws = WorkSession.objects.filter(task_log_id=task.task_id).first()
+                if not ws and task.project_task_id:
+                    ws = WorkSession.objects.filter(task__task_id=task.project_task_id, user_id=user_id, status__in=['IN_PROGRESS', 'PAUSED']).first()
+                if ws:
+                    ws.duration_seconds = task.duration_seconds
+                    ws.work_segments = task.work_segments
+                    ws.current_segment_start = None
+                    ws.end_time = now_utc
+                    ws.status = 'COMPLETED' if is_explicit_completed else 'ENDED'
+                    ws.save()
+            except Exception:
+                pass
             
             t_dict = list(TaskLog.objects.filter(task_id=task.task_id).values())[0]
             t_dict['task_log_id'] = t_dict.pop('task_id')

@@ -59,7 +59,10 @@ def parse_iso_utc(ts_str):
         return None
     cleaned = ts_str.replace("Z", "+00:00")
     try:
-        return datetime.fromisoformat(cleaned)
+        dt = datetime.fromisoformat(cleaned)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except Exception:
         return None
 
@@ -733,6 +736,9 @@ def close_employee_active_workday_and_timers(user_id, close_reason="END_WORK", s
 
                 if s.task_log_id:
                     TaskLog.objects.filter(task_id=s.task_log_id).update(
+                        duration_seconds=s.duration_seconds,
+                        work_segments=s.work_segments,
+                        current_segment_start=None,
                         end_time=now_utc_str,
                         status='ENDED',
                         is_explicit_completed=False,
@@ -979,6 +985,7 @@ def status_view(request):
     active_task = None
     if raw_active:
         dur_sec = storage.calculate_task_duration(raw_active, now_utc)
+        closed_sec = int(raw_active.get('duration_seconds') or 0)
         eps = ensure_employee_project_status(request.user, raw_active['project_name'], starting_work=False)
         active_task = {
             'task_log_id': raw_active['task_log_id'],
@@ -991,7 +998,8 @@ def status_view(request):
             'end_time': raw_active.get('end_time'),
             'status': raw_active.get('status', 'IN_PROGRESS'),
             'duration_seconds': dur_sec,
-            'duration_seconds_base': int(raw_active.get('duration_seconds') or 0),
+            'closed_duration_seconds': closed_sec,
+            'duration_seconds_base': closed_sec,
             'current_segment_start': raw_active.get('current_segment_start'),
             'work_segments': raw_active.get('work_segments', []),
             'my_project_status': eps.status if eps else 'JUST_STARTED',
@@ -1020,6 +1028,7 @@ def status_view(request):
     settings = storage.get_settings()
     
     return Response({
+        'server_time': now_utc.isoformat().replace("+00:00", "Z"),
         'status': today_metrics['status'],
         'tracker_state': today_metrics['tracker_state'],
         'start_time': today_metrics['start_time'],
@@ -1029,6 +1038,7 @@ def status_view(request):
         'completed_work_seconds': today_metrics['completed_work_seconds'],
         'completed_break_seconds': today_metrics['completed_break_seconds'],
         'current_segment_start': today_metrics['current_segment_start'],
+        'current_session_start': today_metrics['current_segment_start'],
         'active_task': active_task,
         'today_events': today_metrics['events'],
         'weekly_history': weekly_history,
@@ -1155,11 +1165,11 @@ def action_view(request):
             source=source,
             explicit_timestamp=now_utc
         )
-        return Response({'success': True, 'event': close_res.get('event'), 'status': 'Ended'})
+        return Response({'success': True, 'event': close_res.get('event'), 'status': 'Ended', 'server_time': now_utc_str})
 
     # Server writes timestamp, ignores any client timestamp
     res = storage.record_event(request.user.id, action, source=source)
-    return Response({'success': True, 'event': res})
+    return Response({'success': True, 'event': res, 'server_time': now_utc_str})
 
 
 @api_view(['GET'])
@@ -2757,6 +2767,9 @@ def daily_tasks_view(request):
 
     for tl in raw_logs:
         dur_sec = 0
+        closed_dur_sec = 0
+        cur_seg_sec = 0
+        cur_seg_start = None
         earliest_s = None
         latest_e = None
         is_running = False
@@ -2776,7 +2789,9 @@ def daily_tasks_view(request):
                             ov_s = max(s_dt, day_start_utc)
                             ov_e = min(e_dt, day_end_utc)
                             if ov_e > ov_s:
-                                dur_sec += int((ov_e - ov_s).total_seconds())
+                                seg_dur = int((ov_e - ov_s).total_seconds())
+                                dur_sec += seg_dur
+                                closed_dur_sec += seg_dur
                                 has_day_activity = True
                                 if earliest_s is None or ov_s < earliest_s: earliest_s = ov_s
                                 if latest_e is None or ov_e > latest_e: latest_e = ov_e
@@ -2795,8 +2810,10 @@ def daily_tasks_view(request):
                         if is_today_ist:
                             is_running = True
                             has_day_activity = True
+                            cur_seg_start = cur_st
                             if ov_e > ov_s:
-                                dur_sec += int((ov_e - ov_s).total_seconds())
+                                cur_seg_sec = int((ov_e - ov_s).total_seconds())
+                                dur_sec += cur_seg_sec
                             if earliest_s is None or ov_s < earliest_s: earliest_s = ov_s
                             latest_e = now_utc
                 except Exception:
@@ -2817,6 +2834,7 @@ def daily_tasks_view(request):
                         e_dt = now_utc
                         is_running = True
                         has_day_activity = True
+                        cur_seg_start = tl.start_time
                     else:
                         base_sec = int(tl.duration_seconds or 0)
                         e_dt = s_dt + timedelta(seconds=base_sec)
@@ -2824,7 +2842,12 @@ def daily_tasks_view(request):
                         ov_s = max(s_dt, day_start_utc)
                         ov_e = min(e_dt, day_end_utc)
                         if ov_e > ov_s:
-                            dur_sec += int((ov_e - ov_s).total_seconds())
+                            seg_dur = int((ov_e - ov_s).total_seconds())
+                            dur_sec += seg_dur
+                            if tl.status == 'IN_PROGRESS' and is_today_ist:
+                                cur_seg_sec += seg_dur
+                            else:
+                                closed_dur_sec += seg_dur
                             has_day_activity = True
                             if earliest_s is None or ov_s < earliest_s: earliest_s = ov_s
                             if latest_e is None or ov_e > latest_e: latest_e = ov_e
@@ -2869,6 +2892,8 @@ def daily_tasks_view(request):
                 'task_name': tl.task_name,
                 'description': tl.description or '',
                 'duration_seconds': dur_sec,
+                'closed_duration_seconds': closed_dur_sec,
+                'current_segment_start': cur_seg_start,
                 'earliest_start': earliest_s,
                 'latest_end': latest_e,
                 'is_running': is_running,
@@ -2880,6 +2905,9 @@ def daily_tasks_view(request):
         else:
             item = grouped_tasks[g_key]
             item['duration_seconds'] += dur_sec
+            item['closed_duration_seconds'] += closed_dur_sec
+            if cur_seg_start:
+                item['current_segment_start'] = cur_seg_start
             if earliest_s:
                 if item['earliest_start'] is None or earliest_s < item['earliest_start']:
                     item['earliest_start'] = earliest_s
@@ -2951,7 +2979,10 @@ def daily_tasks_view(request):
             'start_time_formatted': start_time_ist,
             'end_time_formatted': end_time_ist,
             'duration_seconds': dur_sec,
-            'duration_seconds_base': dur_sec,
+            'closed_duration_seconds': it['closed_duration_seconds'],
+            'duration_seconds_base': it['closed_duration_seconds'],
+            'current_segment_start': it.get('current_segment_start'),
+            'is_running': it['is_running'],
             'duration_hours': round(dur_sec / 3600.0, 2),
             'duration_formatted': format_task_seconds(dur_sec),
             'status': status_display
@@ -3011,6 +3042,7 @@ def daily_tasks_view(request):
     ]
 
     return Response({
+        'server_time': now_utc.isoformat().replace("+00:00", "Z"),
         'date': target_date,
         'employee': {
             'id': target_user.id,
@@ -3095,7 +3127,11 @@ def start_task_view(request):
             employee_name=emp_name,
             project_task_id=request.data.get('project_task_id')
         )
-        return Response({'message': 'Task started successfully.', 'task': new_task}, status=201)
+        return Response({
+            'message': 'Task started successfully.',
+            'task': new_task,
+            'server_time': now_utc.isoformat().replace("+00:00", "Z")
+        }, status=201)
     except ValueError as e:
         return Response({'error': str(e)}, status=400)
 
@@ -3115,7 +3151,11 @@ def end_task_view(request):
             user_email=request.user.email,
             is_explicit_completed=is_completed
         )
-        return Response({'message': 'Task ended successfully.', 'task': ended_task})
+        return Response({
+            'message': 'Task ended successfully.',
+            'task': ended_task,
+            'server_time': datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        })
     except ValueError as e:
         return Response({'error': str(e)}, status=400)
 

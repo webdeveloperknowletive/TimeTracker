@@ -144,6 +144,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let currentBreakBase = 0;
     let currentStatusVal = 'Not Started';
     let sessionStartTime = null;
+    let serverSkewMs = 0;
     function stopAllTimers() {
         if (empTimerInterval) {
             clearInterval(empTimerInterval);
@@ -289,11 +290,18 @@ document.addEventListener('DOMContentLoaded', async () => {
             currentStatusVal = data.status;
             currentWorkBase = data.completed_work_seconds !== undefined ? data.completed_work_seconds : (data.total_work_seconds || 0);
             currentBreakBase = data.completed_break_seconds !== undefined ? data.completed_break_seconds : (data.total_break_seconds || 0);
-            if (data.current_session_start) {
-                sessionStartTime = new Date(data.current_session_start).getTime();
+            const segStart = data.current_segment_start || data.current_session_start;
+            if (segStart) {
+                sessionStartTime = new Date(segStart).getTime();
             }
             else {
                 sessionStartTime = null;
+            }
+            if (data.server_time) {
+                const sTime = new Date(data.server_time).getTime();
+                if (!isNaN(sTime)) {
+                    serverSkewMs = Date.now() - sTime;
+                }
             }
             renderTimerAndUI();
             if (syncStatus)
@@ -320,13 +328,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         currentStatus.textContent = currentStatusVal;
         let displayWork = currentWorkBase;
         let displayBreak = currentBreakBase;
+        const nowMs = Date.now() - serverSkewMs;
         if (currentStatusVal === 'Working' && sessionStartTime) {
-            const liveAdded = Math.max(0, Math.floor((Date.now() - sessionStartTime) / 1000));
+            const liveAdded = Math.max(0, Math.floor((nowMs - sessionStartTime) / 1000));
             displayWork = currentWorkBase + liveAdded;
             timeElapsed.textContent = `Work: ${formatDuration(displayWork)}`;
         }
         else if (currentStatusVal === 'On Break' && sessionStartTime) {
-            const liveAdded = Math.max(0, Math.floor((Date.now() - sessionStartTime) / 1000));
+            const liveAdded = Math.max(0, Math.floor((nowMs - sessionStartTime) / 1000));
             displayBreak = currentBreakBase + liveAdded;
             timeElapsed.textContent = `Break: ${formatDuration(displayBreak)}`;
         }

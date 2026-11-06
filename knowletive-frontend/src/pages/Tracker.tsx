@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Play, Pause, LogOut, CheckCircle, Bell,
@@ -13,7 +13,7 @@ import { format, parseISO } from 'date-fns';
 import api from '../lib/api';
 import TaskNameSelector from '../components/TaskNameSelector';
 
-import { formatDigitalDuration, formatDisplayDate } from '../utils/formatters';
+import { formatDigitalDuration, formatDisplayDate, formatHumanReadableDuration } from '../utils/formatters';
 
 function formatReadableTime(isoStr: string | null): string {
   if (!isoStr) return '--:--';
@@ -64,10 +64,24 @@ export default function Tracker() {
   const [dailyTasks, setDailyTasks] = useState<any[]>([]);
   const [activeTask, setActiveTask] = useState<any | null>(null);
   const [activeTaskElapsed, setActiveTaskElapsed] = useState<number>(0);
-  const [totalTaskFormatted, setTotalTaskFormatted] = useState<string>('0 sec');
   const [projectBreakdown, setProjectBreakdown] = useState<any[]>([]);
   const [loadingTasks, setLoadingTasks] = useState<boolean>(false);
   const [taskFilterProject, setTaskFilterProject] = useState<string>('');
+  const serverSkewMsRef = useRef<number>(0);
+
+  // Synchronized live sum of all tasks for today
+  const liveTotalTaskSeconds = useMemo(() => {
+    let sumSec = 0;
+    const activeTaskId = activeTask?.task_log_id || activeTask?.task_id;
+    for (const t of dailyTasks) {
+      if ((t.task_log_id && t.task_log_id === activeTaskId) || t.is_running) {
+        sumSec += activeTaskElapsed;
+      } else {
+        sumSec += (t.duration_seconds || 0);
+      }
+    }
+    return sumSec;
+  }, [dailyTasks, activeTask, activeTaskElapsed]);
 
   // Modals for Task Management
   const [showStartWorkdayPrompt, setShowStartWorkdayPrompt] = useState<boolean>(false);
@@ -262,6 +276,12 @@ export default function Tracker() {
     try {
       const res = await api.get('/tracker/status/');
       const data = res.data;
+      if (data.server_time) {
+        const sTime = new Date(data.server_time).getTime();
+        if (!isNaN(sTime)) {
+          serverSkewMsRef.current = Date.now() - sTime;
+        }
+      }
       setStatus(data.status);
       setEvents(data.today_events || []);
       setServerTotalWork(data.total_work_seconds || 0);
@@ -318,6 +338,12 @@ export default function Tracker() {
       }
       const res = await api.get(`/tasks/daily/?${params.toString()}`);
       const data = res.data;
+      if (data.server_time) {
+        const sTime = new Date(data.server_time).getTime();
+        if (!isNaN(sTime)) {
+          serverSkewMsRef.current = Date.now() - sTime;
+        }
+      }
       if (data.employee) {
         setEmployeeInfo((prev: any) => ({
           ...prev,
@@ -332,7 +358,6 @@ export default function Tracker() {
       }
       setDailyTasks(data.tasks || []);
       setActiveTask(data.active_task || null);
-      setTotalTaskFormatted(data.total_task_formatted || '0 sec');
       setProjectBreakdown(data.project_breakdown || []);
     } catch (err: any) {
       console.error('Failed to load tasks', err);
@@ -370,7 +395,7 @@ export default function Tracker() {
   // At any moment, ONLY ONE timer runs: Work/Task timer OR Break timer. NEVER BOTH.
   useEffect(() => {
     const tick = () => {
-      const nowMs = Date.now();
+      const nowMs = Date.now() - serverSkewMsRef.current;
 
       // Calculate TOTAL DAY TIME (includes breaks)
       if (startTime && status !== 'Not Started') {
@@ -388,26 +413,33 @@ export default function Tracker() {
       if (status === 'Working') {
         // CASE 1 & 3: WORKING
         // 1. Working time actively increases from anchor
-        let activeWorkSec = serverTotalWork;
-        if (currentSegmentStart) {
-          const segStartMs = new Date(currentSegmentStart).getTime();
+        let activeWorkSec = serverTotalWorkBase;
+        const segAnchor = currentSegmentStart || startTime;
+        if (segAnchor) {
+          const segStartMs = new Date(segAnchor).getTime();
           const extraSec = Math.max(0, Math.floor((nowMs - segStartMs) / 1000));
           activeWorkSec = serverTotalWorkBase + extraSec;
+        } else {
+          activeWorkSec = serverTotalWork;
         }
         setElapsedWork(activeWorkSec);
 
         // 2. Break time is STRICTLY FROZEN
         setElapsedBreak(serverTotalBreak);
 
-        // 3. Active task timer increases (if active and not paused)
+        // 3. Active task timer increases without double counting
         if (activeTask && activeTask.status === 'IN_PROGRESS') {
-          const segStartStr = activeTask.current_segment_start || activeTask.start_time;
-          const taskSegMs = segStartStr ? new Date(segStartStr).getTime() : nowMs;
-          const extraTaskSec = Math.max(0, Math.floor((nowMs - taskSegMs) / 1000));
-          const baseSec = activeTask.duration_seconds_base ?? activeTask.duration_seconds ?? 0;
-          setActiveTaskElapsed(baseSec + extraTaskSec);
+          const segAnchor = activeTask.current_segment_start || activeTask.start_time;
+          let openSegSec = 0;
+          if (segAnchor) {
+            const segStartMs = new Date(segAnchor).getTime();
+            openSegSec = Math.max(0, Math.floor((nowMs - segStartMs) / 1000));
+          }
+          const closedBaseSec = activeTask.closed_duration_seconds ?? activeTask.duration_seconds_base ?? 0;
+          setActiveTaskElapsed(closedBaseSec + openSegSec);
         } else if (activeTask) {
-          setActiveTaskElapsed(activeTask.duration_seconds_base ?? activeTask.duration_seconds ?? 0);
+          const closedBaseSec = activeTask.closed_duration_seconds ?? activeTask.duration_seconds_base ?? activeTask.duration_seconds ?? 0;
+          setActiveTaskElapsed(closedBaseSec);
         } else {
           setActiveTaskElapsed(0);
         }
@@ -427,8 +459,8 @@ export default function Tracker() {
 
         // 3. Active task timer is STRICTLY FROZEN at its accumulated work duration
         if (activeTask) {
-          const baseSec = activeTask.duration_seconds_base ?? activeTask.duration_seconds ?? 0;
-          setActiveTaskElapsed(baseSec);
+          const closedBaseSec = activeTask.closed_duration_seconds ?? activeTask.duration_seconds_base ?? activeTask.duration_seconds ?? 0;
+          setActiveTaskElapsed(closedBaseSec);
         } else {
           setActiveTaskElapsed(0);
         }
@@ -806,10 +838,10 @@ export default function Tracker() {
   };
 
   const OFFICE_REQUIRED_SECONDS = 9 * 3600; // 9 hours
-  const progressPercentage = Math.min(100, (elapsedTotalDay / OFFICE_REQUIRED_SECONDS) * 100);
-  const remainingSeconds = Math.max(0, OFFICE_REQUIRED_SECONDS - elapsedTotalDay);
-  const extraSeconds = Math.max(0, elapsedTotalDay - OFFICE_REQUIRED_SECONDS);
-  const is9HoursCompleted = elapsedTotalDay >= OFFICE_REQUIRED_SECONDS;
+  const progressPercentage = Math.min(100, (elapsedWork / OFFICE_REQUIRED_SECONDS) * 100);
+  const remainingSeconds = Math.max(0, OFFICE_REQUIRED_SECONDS - elapsedWork);
+  const extraSeconds = Math.max(0, elapsedWork - OFFICE_REQUIRED_SECONDS);
+  const is9HoursCompleted = elapsedWork >= OFFICE_REQUIRED_SECONDS;
 
   const isStartReminderActive = !reminderDismissed && status === 'Not Started';
   const isEndReminderActive = !reminderDismissed && (status === 'Working' || status === 'On Break');
@@ -1258,7 +1290,7 @@ export default function Tracker() {
                     status === 'On Break' ? '!bg-amber-50/90 !border-amber-300/80' : '!bg-white/95 !border-indigo-200/80'
                   }`}>
                     <p className={`text-[9px] font-bold uppercase tracking-wider ${status === 'On Break' ? 'text-amber-700' : 'text-slate-500'}`}>
-                      {status === 'On Break' ? 'Timer (FROZEN)' : 'Running Time'}
+                      {status === 'On Break' ? 'Timer (FROZEN)' : 'Task Time Today'}
                     </p>
                     <p className={`font-mono text-base sm:text-lg font-black tracking-tight ${status === 'On Break' ? 'text-amber-700' : 'text-indigo-600'}`}>
                       {formatDigitalDuration(activeTaskElapsed)}
@@ -1533,7 +1565,7 @@ export default function Tracker() {
                 <div className="clay-inset-well p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 my-3 shrink-0">
                   <div>
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Tracked Time:</span>
-                    <span className="ml-2 font-mono text-sm sm:text-base font-bold text-slate-900">{totalTaskFormatted}</span>
+                    <span className="ml-2 font-mono text-sm sm:text-base font-bold text-slate-900">{formatHumanReadableDuration(liveTotalTaskSeconds)}</span>
                   </div>
 
                   {projectBreakdown.length > 0 && (
@@ -1588,7 +1620,11 @@ export default function Tracker() {
 
                         <div className="flex items-center justify-between sm:justify-end gap-2 pl-7 sm:pl-0 shrink-0 flex-wrap">
                           <div className="text-right mr-1 sm:mr-2">
-                            <p className="font-mono text-xs font-bold text-slate-900">{t.duration_formatted}</p>
+                            <p className="font-mono text-xs font-bold text-slate-900">
+                              {((t.task_log_id && t.task_log_id === (activeTask?.task_log_id || activeTask?.task_id)) || (t.is_running && activeTask))
+                                ? formatHumanReadableDuration(activeTaskElapsed)
+                                : t.duration_formatted}
+                            </p>
                             <p className="text-[10px] text-slate-400 font-medium font-mono">
                               {t.start_time_formatted} — {t.end_time_formatted}
                             </p>
