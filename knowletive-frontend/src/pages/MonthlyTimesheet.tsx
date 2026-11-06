@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Calendar, ChevronLeft, ChevronRight, Save, Download, 
   FileSpreadsheet, ArrowLeft, Search, CheckCircle, 
-  AlertCircle, ShieldCheck, UserCheck, Briefcase, TrendingUp
+  AlertCircle, ShieldCheck, UserCheck, Briefcase
 } from 'lucide-react';
 import api from '../lib/api';
 import { formatHumanReadableDuration } from '../utils/formatters';
@@ -302,19 +302,6 @@ export default function MonthlyTimesheet() {
           )}
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                if (Object.keys(dirtyRows).length > 0) {
-                  if (!confirm('You have unsaved edits. Discard and go to Analytics?')) return;
-                }
-                navigate('/analytics');
-              }}
-              className="clay-btn clay-btn-secondary px-3.5 py-2 text-xs font-semibold rounded-xl"
-              title="View Time Analytics"
-            >
-              <TrendingUp size={14} className="text-indigo-600" />
-              <span className="hidden md:inline">Analytics</span>
-            </button>
             <button
               onClick={() => handleExport('csv')}
               className="clay-btn clay-btn-secondary px-3.5 py-2 text-xs font-semibold rounded-xl"

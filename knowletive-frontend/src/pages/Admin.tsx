@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Users, Download, LogOut, Clock, Shield, Search, 
   Plus, Edit2, AlertTriangle, FileSpreadsheet,
-  Settings as SettingsIcon, Calendar,
+  Settings as SettingsIcon, Calendar, Activity,
   FolderKanban, ListTodo, RefreshCw, KeyRound, Copy,
   CheckCircle2, UserCheck, UserX, Bell, Link2, TrendingUp,
-  X, Filter, CheckCircle, Eye, EyeOff, Menu, FolderGit2, Sparkles
+  X, Filter, CheckCircle, Eye, EyeOff, Menu, FolderGit2, Sparkles,
+  ChevronLeft, ChevronRight, AlertCircle
 } from 'lucide-react';
 import api from '../lib/api';
 import DailyTaskAnalyticsDashboard from '../components/DailyTaskAnalyticsDashboard';
@@ -38,6 +39,18 @@ export default function Admin() {
   const [attendanceSearch, setAttendanceSearch] = useState<string>('');
   const [attendanceDeptFilter, setAttendanceDeptFilter] = useState<string>('');
   const [attendanceStatusFilter, setAttendanceStatusFilter] = useState<string>('ALL');
+
+  // Admin Live vs Monthly Attendance view
+  const [attendanceSubView, setAttendanceSubView] = useState<'live' | 'monthly'>('live');
+  const [adminAttendanceMonth, setAdminAttendanceMonth] = useState<number>(new Date().getMonth() + 1);
+  const [adminAttendanceYear, setAdminAttendanceYear] = useState<number>(new Date().getFullYear());
+  const [adminMonthlyAttendanceData, setAdminMonthlyAttendanceData] = useState<any>(null);
+  const [loadingAdminMonthlyAttendance, setLoadingAdminMonthlyAttendance] = useState<boolean>(false);
+  const [monthlySearch, setMonthlySearch] = useState<string>('');
+  const [monthlyDeptFilter, setMonthlyDeptFilter] = useState<string>('');
+  const [selectedEmployeeMonthlyDetails, setSelectedEmployeeMonthlyDetails] = useState<any | null>(null);
+  const [monthlyDetailTab, setMonthlyDetailTab] = useState<'all' | 'late' | 'nine_hours'>('all');
+  const [showEmployeeMonthlyModal, setShowEmployeeMonthlyModal] = useState<boolean>(false);
 
   // Invitations & Onboarding state
   const [invitationsList, setInvitationsList] = useState<any[]>([]);
@@ -229,10 +242,57 @@ export default function Admin() {
         setNotificationsList(notifRes.data?.notifications || []);
         setUnreadNotifCount(notifRes.data?.unread_count || 0);
       });
+
+      // Also refresh monthly attendance if loaded
+      loadAdminMonthlyAttendance();
     } catch (err: any) {
       setErrorMsg(err.response?.data?.error || 'Failed to load administrator data.');
       setLoading(false);
     }
+  };
+
+  const loadAdminMonthlyAttendance = async (yr?: number, mth?: number) => {
+    const targetY = yr ?? adminAttendanceYear;
+    const targetM = mth ?? adminAttendanceMonth;
+    setLoadingAdminMonthlyAttendance(true);
+    try {
+      const res = await api.get(`/admin/attendance/monthly-summary/?year=${targetY}&month=${targetM}`);
+      setAdminMonthlyAttendanceData(res.data);
+    } catch (err: any) {
+      console.error('Failed to load admin monthly attendance', err);
+    } finally {
+      setLoadingAdminMonthlyAttendance(false);
+    }
+  };
+
+  const handlePrevAdminMonth = () => {
+    let newM = adminAttendanceMonth - 1;
+    let newY = adminAttendanceYear;
+    if (newM < 1) {
+      newM = 12;
+      newY -= 1;
+    }
+    setAdminAttendanceMonth(newM);
+    setAdminAttendanceYear(newY);
+    loadAdminMonthlyAttendance(newY, newM);
+  };
+
+  const handleNextAdminMonth = () => {
+    let newM = adminAttendanceMonth + 1;
+    let newY = adminAttendanceYear;
+    if (newM > 12) {
+      newM = 1;
+      newY += 1;
+    }
+    setAdminAttendanceMonth(newM);
+    setAdminAttendanceYear(newY);
+    loadAdminMonthlyAttendance(newY, newM);
+  };
+
+  const handleOpenEmployeeMonthlyDetails = (emp: any, initialTab: 'all' | 'late' | 'nine_hours' = 'all') => {
+    setSelectedEmployeeMonthlyDetails(emp);
+    setMonthlyDetailTab(initialTab);
+    setShowEmployeeMonthlyModal(true);
   };
 
   const loadReports = async () => {
@@ -581,6 +641,39 @@ export default function Admin() {
       return matchesSearch && matchesDept && matchesStatus;
     });
   }, [dashboardData, attendanceSearch, attendanceDeptFilter, attendanceStatusFilter]);
+
+  // Filtered Monthly Attendance Employees
+  const filteredMonthlyEmployees = useMemo(() => {
+    if (!adminMonthlyAttendanceData?.employees) return [];
+    let list = adminMonthlyAttendanceData.employees;
+    if (monthlySearch.trim()) {
+      const q = monthlySearch.trim().toLowerCase();
+      list = list.filter((e: any) =>
+        (e.name && e.name.toLowerCase().includes(q)) ||
+        (e.email && e.email.toLowerCase().includes(q)) ||
+        (e.employee_id && e.employee_id.toLowerCase().includes(q)) ||
+        (e.designation && e.designation.toLowerCase().includes(q))
+      );
+    }
+    if (monthlyDeptFilter) {
+      list = list.filter((e: any) => e.department === monthlyDeptFilter);
+    }
+    return list;
+  }, [adminMonthlyAttendanceData, monthlySearch, monthlyDeptFilter]);
+
+  // Filtered days in Employee Monthly Detail Modal
+  const filteredEmployeeDetailDays = useMemo(() => {
+    if (!selectedEmployeeMonthlyDetails?.days) return [];
+    if (monthlyDetailTab === 'late') {
+      return selectedEmployeeMonthlyDetails.days.filter((d: any) => d.is_late);
+    }
+    if (monthlyDetailTab === 'nine_hours') {
+      return selectedEmployeeMonthlyDetails.days.filter((d: any) => d.completed_9_hours);
+    }
+    const hasAnyRecord = selectedEmployeeMonthlyDetails.days.some((d: any) => d.has_record);
+    if (!hasAnyRecord) return selectedEmployeeMonthlyDetails.days;
+    return selectedEmployeeMonthlyDetails.days.filter((d: any) => d.has_record);
+  }, [selectedEmployeeMonthlyDetails, monthlyDetailTab]);
 
   // Filtered user roster
   const filteredUsersList = useMemo(() => {
@@ -1059,10 +1152,44 @@ export default function Admin() {
           </div>
         </div>
 
-        {/* TAB 1: LIVE ATTENDANCE (EMPLOYEES ONLY) */}
+        {/* TAB 1: ATTENDANCE (LIVE & MONTHLY) */}
         {activeTab === 'attendance' && (
-          <div className="clay-card p-5 sm:p-7 space-y-6">
-            {/* Tab Header with Title & Action */}
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Sub-module View Switcher: Live Today vs. Monthly Attendance */}
+            <div className="flex items-center gap-2 border-b border-slate-200/80 pb-3 flex-wrap">
+              <button
+                onClick={() => setAttendanceSubView('live')}
+                className={`clay-pill px-4 py-2 text-xs font-bold flex items-center gap-2 transition ${
+                  attendanceSubView === 'live'
+                    ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
+                }`}
+              >
+                <Activity size={15} />
+                <span>Live Today</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setAttendanceSubView('monthly');
+                  if (!adminMonthlyAttendanceData) {
+                    loadAdminMonthlyAttendance();
+                  }
+                }}
+                className={`clay-pill px-4 py-2 text-xs font-bold flex items-center gap-2 transition ${
+                  attendanceSubView === 'monthly'
+                    ? 'bg-gradient-to-r from-indigo-600 to-teal-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
+                }`}
+              >
+                <Calendar size={15} />
+                <span>Monthly Attendance</span>
+              </button>
+            </div>
+
+            {attendanceSubView === 'live' && (
+              <div className="clay-card p-5 sm:p-7 space-y-6">
+                {/* Tab Header with Title & Action */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h3 className="text-lg font-bold text-slate-900 tracking-tight">Today's Employee Attendance</h3>
@@ -1230,6 +1357,210 @@ export default function Admin() {
             </div>
           </div>
         )}
+
+        {/* SUB-VIEW 2: MONTHLY ATTENDANCE */}
+        {attendanceSubView === 'monthly' && (
+          <div className="clay-card p-5 sm:p-7 space-y-6">
+            {/* Monthly Attendance Header with Month/Year Navigation */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 tracking-tight">Monthly Attendance Summary</h3>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  Review employee late arrivals (after 10:35 AM IST) and completed 9-hour work days
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                {/* Month / Year Selector */}
+                <div className="flex items-center bg-slate-100/80 rounded-lg p-1 border border-slate-200 shadow-inner">
+                  <button
+                    onClick={handlePrevAdminMonth}
+                    disabled={loadingAdminMonthlyAttendance}
+                    className="clay-btn p-1.5 text-slate-600 hover:text-slate-900 disabled:opacity-50"
+                    title="Previous Month"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span className="px-3 text-xs font-bold text-slate-800 min-w-[130px] text-center">
+                    {adminMonthlyAttendanceData?.month_name || `${new Date(adminAttendanceYear, adminAttendanceMonth - 1).toLocaleString('en-US', { month: 'long', year: 'numeric' })}`}
+                  </span>
+                  <button
+                    onClick={handleNextAdminMonth}
+                    disabled={loadingAdminMonthlyAttendance}
+                    className="clay-btn p-1.5 text-slate-600 hover:text-slate-900 disabled:opacity-50"
+                    title="Next Month"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => loadAdminMonthlyAttendance()}
+                  disabled={loadingAdminMonthlyAttendance}
+                  className="clay-btn p-2 text-slate-700"
+                  title="Refresh monthly attendance"
+                >
+                  <RefreshCw size={15} className={loadingAdminMonthlyAttendance ? 'animate-spin' : ''} />
+                </button>
+              </div>
+            </div>
+
+            {/* Filters */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+                <input
+                  type="text"
+                  placeholder="Search by name, employee ID, role..."
+                  value={monthlySearch}
+                  onChange={(e) => setMonthlySearch(e.target.value)}
+                  className="clay-input has-icon-left w-full pl-11 pr-3.5 text-sm min-h-[44px]"
+                />
+              </div>
+
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <select
+                  value={monthlyDeptFilter}
+                  onChange={(e) => setMonthlyDeptFilter(e.target.value)}
+                  className="clay-input text-sm w-full sm:w-auto min-w-[160px]"
+                >
+                  <option value="">All Departments</option>
+                  {departmentOptions.map(dept => (
+                    <option key={dept} value={dept}>{dept}</option>
+                  ))}
+                </select>
+
+                {(monthlySearch || monthlyDeptFilter) && (
+                  <button
+                    onClick={() => {
+                      setMonthlySearch('');
+                      setMonthlyDeptFilter('');
+                    }}
+                    className="text-xs font-semibold text-slate-500 hover:text-slate-800 underline px-1"
+                  >
+                    Clear Filters
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Monthly Table */}
+            <div className="clay-table-container overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200/80 bg-slate-50/50">
+                    <th className="py-3 px-4 font-bold text-slate-600 uppercase tracking-wider">Employee ID</th>
+                    <th className="py-3 px-4 font-bold text-slate-600 uppercase tracking-wider">Employee Name</th>
+                    <th className="py-3 px-4 font-bold text-slate-600 uppercase tracking-wider text-center">
+                      Late Arrivals
+                      <span className="block text-[10px] font-normal text-slate-400 lowercase">clock-in &gt; 10:35 AM IST</span>
+                    </th>
+                    <th className="py-3 px-4 font-bold text-slate-600 uppercase tracking-wider text-center">
+                      Days Completed 9 Hours
+                      <span className="block text-[10px] font-normal text-slate-400 lowercase">&ge; 9h work (excl. breaks)</span>
+                    </th>
+                    <th className="py-3 px-4 font-bold text-slate-600 uppercase tracking-wider text-right">View Details</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredMonthlyEmployees.map((emp: any) => (
+                    <tr
+                      key={emp.user_id}
+                      onClick={() => handleOpenEmployeeMonthlyDetails(emp, 'all')}
+                      className="hover:bg-indigo-50/30 transition-colors cursor-pointer group"
+                    >
+                      <td className="py-3.5 px-4 font-mono font-semibold text-slate-700">
+                        {emp.employee_id}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div className="flex flex-col">
+                          <span className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                            {emp.name}
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            {emp.department} • {emp.designation}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenEmployeeMonthlyDetails(emp, 'late');
+                          }}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition ${
+                            emp.late_arrivals_count > 0
+                              ? 'bg-amber-50 text-amber-800 border border-amber-200/80 hover:bg-amber-100'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          <Clock size={12} className={emp.late_arrivals_count > 0 ? 'text-amber-600' : 'text-slate-400'} />
+                          <span>{emp.late_arrivals_count} {emp.late_arrivals_count === 1 ? 'day' : 'days'}</span>
+                        </button>
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenEmployeeMonthlyDetails(emp, 'nine_hours');
+                          }}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition ${
+                            emp.completed_9_hours_count > 0
+                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/80 hover:bg-emerald-100'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          <CheckCircle2 size={12} className={emp.completed_9_hours_count > 0 ? 'text-emerald-600' : 'text-slate-400'} />
+                          <span>{emp.completed_9_hours_count} {emp.completed_9_hours_count === 1 ? 'day' : 'days'}</span>
+                        </button>
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <span className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 group-hover:text-indigo-800 transition">
+                          <span>View Details</span>
+                          <ChevronRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {!loadingAdminMonthlyAttendance && filteredMonthlyEmployees.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-12 text-center text-slate-400">
+                        <Users size={32} className="mx-auto mb-2 text-slate-300" />
+                        <p className="font-bold text-slate-700 text-sm">No employee monthly attendance found.</p>
+                        <p className="text-xs text-slate-400 mt-1">Try adjusting your search query or department filter.</p>
+                      </td>
+                    </tr>
+                  )}
+                  {loadingAdminMonthlyAttendance && (
+                    <tr>
+                      <td colSpan={5} className="py-12 text-center text-slate-400">
+                        <RefreshCw size={24} className="mx-auto mb-2 text-indigo-500 animate-spin" />
+                        <p className="text-xs text-slate-500 font-medium">Loading monthly attendance summary...</p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Helper info bar */}
+            <div className="bg-slate-50 border border-slate-200/70 rounded-lg p-3 text-[11px] text-slate-500 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <AlertCircle size={14} className="text-indigo-500 flex-shrink-0" />
+                <span>
+                  Office starts at <strong>10:30 AM IST</strong> with a 5-minute grace period through <strong>10:35:00 AM IST</strong>. First clock-in after 10:35 AM IST counts as late.
+                </span>
+              </div>
+              <div className="text-slate-400">
+                9-hour completion counts valid work time (&ge; 9h), excluding breaks and post-sign-out duration.
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    )}
 
         {/* TAB: PROJECT & TASK PROGRESS */}
         {activeTab === 'projects' && (
@@ -2625,6 +2956,231 @@ export default function Admin() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* EMPLOYEE MONTHLY ATTENDANCE BREAKDOWN MODAL */}
+      {showEmployeeMonthlyModal && selectedEmployeeMonthlyDetails && (
+        <div className="clay-modal-overlay">
+          <div className="clay-modal-dialog max-w-4xl w-full p-6 sm:p-7 max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between pb-4 border-b border-slate-200/80">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-slate-900">
+                    {selectedEmployeeMonthlyDetails.name}
+                  </h3>
+                  <span className="px-2 py-0.5 rounded font-mono text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                    {selectedEmployeeMonthlyDetails.employee_id}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 font-medium mt-1">
+                  {selectedEmployeeMonthlyDetails.department} • {selectedEmployeeMonthlyDetails.designation} • {adminMonthlyAttendanceData?.month_name || `${new Date(adminAttendanceYear, adminAttendanceMonth - 1).toLocaleString('en-US', { month: 'long', year: 'numeric' })}`}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowEmployeeMonthlyModal(false)}
+                className="clay-btn clay-btn-secondary p-1.5 text-slate-400 hover:text-slate-700"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Monthly Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 my-4">
+              <div 
+                onClick={() => setMonthlyDetailTab('late')}
+                className={`p-3.5 rounded-xl border transition cursor-pointer ${
+                  monthlyDetailTab === 'late'
+                    ? 'bg-amber-50/90 border-amber-300 ring-2 ring-amber-400/30'
+                    : 'bg-amber-50/40 border-amber-200/60 hover:bg-amber-50/70'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-amber-800">Late Arrivals</span>
+                  <Clock size={15} className="text-amber-600" />
+                </div>
+                <p className="text-2xl font-black text-amber-900 mt-1">
+                  {selectedEmployeeMonthlyDetails.late_arrivals_count} <span className="text-xs font-medium text-amber-700">days</span>
+                </p>
+                <p className="text-[10px] text-amber-700/80 mt-0.5 font-medium">First clock-in &gt; 10:35 AM IST</p>
+              </div>
+
+              <div 
+                onClick={() => setMonthlyDetailTab('nine_hours')}
+                className={`p-3.5 rounded-xl border transition cursor-pointer ${
+                  monthlyDetailTab === 'nine_hours'
+                    ? 'bg-emerald-50/90 border-emerald-300 ring-2 ring-emerald-400/30'
+                    : 'bg-emerald-50/40 border-emerald-200/60 hover:bg-emerald-50/70'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-emerald-800">Completed 9 Hours</span>
+                  <CheckCircle2 size={15} className="text-emerald-600" />
+                </div>
+                <p className="text-2xl font-black text-emerald-900 mt-1">
+                  {selectedEmployeeMonthlyDetails.completed_9_hours_count} <span className="text-xs font-medium text-emerald-700">days</span>
+                </p>
+                <p className="text-[10px] text-emerald-700/80 mt-0.5 font-medium">&ge; 9 hours tracked work time</p>
+              </div>
+
+              <div 
+                onClick={() => setMonthlyDetailTab('all')}
+                className={`p-3.5 rounded-xl border transition cursor-pointer ${
+                  monthlyDetailTab === 'all'
+                    ? 'bg-indigo-50/90 border-indigo-300 ring-2 ring-indigo-400/30'
+                    : 'bg-indigo-50/40 border-indigo-200/60 hover:bg-indigo-50/70'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-indigo-800">Total Days Worked</span>
+                  <Calendar size={15} className="text-indigo-600" />
+                </div>
+                <p className="text-2xl font-black text-indigo-900 mt-1">
+                  {selectedEmployeeMonthlyDetails.total_days_worked} <span className="text-xs font-medium text-indigo-700">days</span>
+                </p>
+                <p className="text-[10px] text-indigo-700/80 mt-0.5 font-medium">Days with recorded work</p>
+              </div>
+            </div>
+
+            {/* Filter Tabs */}
+            <div className="flex items-center gap-2 border-b border-slate-200/80 pb-2 mb-3">
+              <button
+                onClick={() => setMonthlyDetailTab('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                  monthlyDetailTab === 'all'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                All Worked Days ({selectedEmployeeMonthlyDetails.total_days_worked})
+              </button>
+              <button
+                onClick={() => setMonthlyDetailTab('late')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  monthlyDetailTab === 'late'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                <span>Late Arrivals</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${monthlyDetailTab === 'late' ? 'bg-amber-700 text-white' : 'bg-amber-100 text-amber-800'}`}>
+                  {selectedEmployeeMonthlyDetails.late_arrivals_count}
+                </span>
+              </button>
+              <button
+                onClick={() => setMonthlyDetailTab('nine_hours')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  monthlyDetailTab === 'nine_hours'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                <span>9 Hours Completed</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${monthlyDetailTab === 'nine_hours' ? 'bg-emerald-700 text-white' : 'bg-emerald-100 text-emerald-800'}`}>
+                  {selectedEmployeeMonthlyDetails.completed_9_hours_count}
+                </span>
+              </button>
+            </div>
+
+            {/* Breakdown Table */}
+            <div className="clay-table-container overflow-y-auto flex-1 min-h-[220px]">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead className="sticky top-0 bg-slate-50/95 backdrop-blur-xs z-10">
+                  <tr className="border-b border-slate-200/80">
+                    <th className="py-2.5 px-3.5 font-bold text-slate-600 uppercase tracking-wider">Date</th>
+                    <th className="py-2.5 px-3.5 font-bold text-slate-600 uppercase tracking-wider">First Clock-in</th>
+                    <th className="py-2.5 px-3.5 font-bold text-slate-600 uppercase tracking-wider">Final Clock-out</th>
+                    <th className="py-2.5 px-3.5 font-bold text-slate-600 uppercase tracking-wider">Work Time</th>
+                    <th className="py-2.5 px-3.5 font-bold text-slate-600 uppercase tracking-wider text-center">Late / On Time</th>
+                    <th className="py-2.5 px-3.5 font-bold text-slate-600 uppercase tracking-wider text-center">9 Hours Completed</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredEmployeeDetailDays.map((d: any) => (
+                    <tr key={d.date} className="hover:bg-slate-50/60 transition">
+                      <td className="py-3 px-3.5 font-semibold text-slate-800">
+                        {(() => {
+                          try {
+                            const [y, m, day] = d.date.split('-').map(Number);
+                            const dt = new Date(y, m - 1, day);
+                            return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', weekday: 'short' });
+                          } catch {
+                            return d.date;
+                          }
+                        })()}
+                      </td>
+                      <td className="py-3 px-3.5 font-mono text-slate-700">
+                        {d.first_clock_in || '-'}
+                      </td>
+                      <td className="py-3 px-3.5 font-mono">
+                        {d.final_clock_out === 'Working' ? (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            Working
+                          </span>
+                        ) : d.final_clock_out === 'On Break' ? (
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            On Break
+                          </span>
+                        ) : (
+                          <span className="text-slate-700">{d.final_clock_out || '-'}</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3.5 font-bold text-indigo-700 font-mono">
+                        {d.work_duration_formatted || '-'}
+                      </td>
+                      <td className="py-3 px-3.5 text-center">
+                        {d.is_late ? (
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                            Late
+                          </span>
+                        ) : d.has_record ? (
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            On Time
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">-</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3.5 text-center">
+                        {d.completed_9_hours ? (
+                          <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                            Yes
+                          </span>
+                        ) : d.has_record ? (
+                          <span className="text-slate-400 font-medium">No</span>
+                        ) : (
+                          <span className="text-slate-400">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredEmployeeDetailDays.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-slate-400">
+                        <Calendar size={24} className="mx-auto mb-1 text-slate-300" />
+                        <p className="font-semibold text-slate-600 text-xs">No days match this filter for {adminMonthlyAttendanceData?.month_name}.</p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between pt-3 mt-2 border-t border-slate-200 text-xs text-slate-400">
+              <span>Timezone: Asia/Kolkata (IST)</span>
+              <button
+                type="button"
+                onClick={() => setShowEmployeeMonthlyModal(false)}
+                className="clay-btn clay-btn-secondary px-4 py-1.5 text-xs font-bold text-slate-700"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1,17 +1,16 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Play, Pause, LogOut, CheckCircle, Bell,
   Calendar, Info, AlertTriangle, ShieldCheck,
   Plus, Edit2, Check, ArrowRight,
-  Clock, Shield, X, TrendingUp, Coffee,
+  Clock, Shield, X, Coffee,
   CheckCircle2, Briefcase, ListTodo,
-  MessageSquare, Download, Puzzle, History
+  MessageSquare, Download, Puzzle,
+  ChevronLeft, ChevronRight, AlertCircle
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import api from '../lib/api';
-import DailyTaskAnalyticsDashboard from '../components/DailyTaskAnalyticsDashboard';
-import EmployeeProjectTasks from '../components/EmployeeProjectTasks';
 import TaskNameSelector from '../components/TaskNameSelector';
 
 import { formatDigitalDuration, formatDisplayDate } from '../utils/formatters';
@@ -61,22 +60,14 @@ export default function Tracker() {
   );
 
   // Time-wise Task Logging State
-  const [selectedTaskDate, setSelectedTaskDate] = useState<string>(getTodayIsoDate());
+  const [selectedTaskDate] = useState<string>(getTodayIsoDate());
   const [dailyTasks, setDailyTasks] = useState<any[]>([]);
   const [activeTask, setActiveTask] = useState<any | null>(null);
   const [activeTaskElapsed, setActiveTaskElapsed] = useState<number>(0);
   const [totalTaskFormatted, setTotalTaskFormatted] = useState<string>('0 sec');
   const [projectBreakdown, setProjectBreakdown] = useState<any[]>([]);
   const [loadingTasks, setLoadingTasks] = useState<boolean>(false);
-  const [workViewMode, setWorkViewMode] = useState<'projects' | 'tasks' | 'analytics'>('projects');
   const [taskFilterProject, setTaskFilterProject] = useState<string>('');
-  const [taskReportData, setTaskReportData] = useState<any>({
-    date: getTodayIsoDate(),
-    tasks: [],
-    by_employee: [],
-    by_project_and_employee: [],
-    summary: { total_tasks: 0, active_in_progress: 0, completed: 0, total_seconds: 0, total_hours: 0 }
-  });
 
   // Modals for Task Management
   const [showStartWorkdayPrompt, setShowStartWorkdayPrompt] = useState<boolean>(false);
@@ -96,6 +87,91 @@ export default function Tracker() {
   // Project & Task Suggestions
   const [existingProjects, setExistingProjects] = useState<any[]>([]);
   const [unfinishedTasks, setUnfinishedTasks] = useState<any[]>([]);
+
+  // Monthly Attendance Summary State
+  const [attendanceMonth, setAttendanceMonth] = useState<number>(new Date().getMonth() + 1);
+  const [attendanceYear, setAttendanceYear] = useState<number>(new Date().getFullYear());
+  const [monthlyAttendance, setMonthlyAttendance] = useState<{
+    year: number;
+    month: number;
+    month_name: string;
+    late_arrivals_count: number;
+    completed_9_hours_count: number;
+    total_days_worked: number;
+    days: Array<{
+      date: string;
+      date_formatted: string;
+      day_of_week: string;
+      first_clock_in: string;
+      first_clock_in_short: string;
+      first_clock_in_iso: string | null;
+      counted_work_seconds: number;
+      counted_work_formatted: string;
+      counted_work_digital: string;
+      is_late: boolean;
+      completed_9_hours: boolean;
+      has_record: boolean;
+      is_today: boolean;
+      attendance_result: string;
+    }>;
+  } | null>(null);
+  const [loadingMonthlyAttendance, setLoadingMonthlyAttendance] = useState<boolean>(false);
+  const [attendanceModalTab, setAttendanceModalTab] = useState<'late' | 'nine_hours' | 'all'>('late');
+  const [showAttendanceModal, setShowAttendanceModal] = useState<boolean>(false);
+
+  const fetchMonthlyAttendance = useCallback(async (yr?: number, mth?: number) => {
+    try {
+      setLoadingMonthlyAttendance(true);
+      const targetYear = yr ?? attendanceYear;
+      const targetMonth = mth ?? attendanceMonth;
+      const res = await api.get(`/attendance/monthly-summary/?year=${targetYear}&month=${targetMonth}`);
+      setMonthlyAttendance(res.data);
+    } catch (err) {
+      console.error('Failed to load monthly attendance summary', err);
+    } finally {
+      setLoadingMonthlyAttendance(false);
+    }
+  }, [attendanceYear, attendanceMonth]);
+
+  const handlePrevAttendanceMonth = () => {
+    let newM = attendanceMonth - 1;
+    let newY = attendanceYear;
+    if (newM < 1) {
+      newM = 12;
+      newY -= 1;
+    }
+    setAttendanceMonth(newM);
+    setAttendanceYear(newY);
+    fetchMonthlyAttendance(newY, newM);
+  };
+
+  const handleNextAttendanceMonth = () => {
+    let newM = attendanceMonth + 1;
+    let newY = attendanceYear;
+    if (newM > 12) {
+      newM = 1;
+      newY += 1;
+    }
+    setAttendanceMonth(newM);
+    setAttendanceYear(newY);
+    fetchMonthlyAttendance(newY, newM);
+  };
+
+  const handleOpenAttendanceModal = (tab: 'late' | 'nine_hours' | 'all') => {
+    setAttendanceModalTab(tab);
+    setShowAttendanceModal(true);
+  };
+
+  const filteredAttendanceDays = useMemo(() => {
+    if (!monthlyAttendance) return [];
+    if (attendanceModalTab === 'late') {
+      return monthlyAttendance.days.filter((d) => d.is_late);
+    }
+    if (attendanceModalTab === 'nine_hours') {
+      return monthlyAttendance.days.filter((d) => d.completed_9_hours);
+    }
+    return monthlyAttendance.days;
+  }, [monthlyAttendance, attendanceModalTab]);
 
 
   // Load saved project status when entering/selecting a project
@@ -258,42 +334,6 @@ export default function Tracker() {
       setActiveTask(data.active_task || null);
       setTotalTaskFormatted(data.total_task_formatted || '0 sec');
       setProjectBreakdown(data.project_breakdown || []);
-
-      const empCode = data.employee?.employee_id || user.employee_id || `EMP${user.id || 1}`;
-      const empName = data.employee?.name || user.name || user.username || 'You';
-      const empEmail = data.employee?.email || user.email || '';
-      const empDept = data.employee?.department || user.department || 'General';
-
-      setTaskReportData({
-        date: data.date || targetDate,
-        tasks: data.tasks || [],
-        by_employee: data.by_employee || (user.id ? [{
-          user_id: user.id,
-          employee_id: empCode,
-          employee_name: empName,
-          email: empEmail,
-          department: empDept,
-          total_seconds: data.total_task_seconds || 0,
-          total_hours: data.total_task_hours || 0,
-          duration_formatted: data.total_task_formatted || '0 sec',
-          tasks_count: (data.tasks || []).length
-        }] : []),
-        by_project_and_employee: data.by_project_and_employee || (data.project_breakdown || []).map((p: any) => ({
-          project_name: p.project_name,
-          employee_name: empName,
-          total_seconds: p.total_seconds,
-          total_hours: p.total_hours,
-          duration_formatted: p.duration_formatted,
-          tasks_count: p.count
-        })),
-        summary: data.summary || {
-          total_tasks: (data.tasks || []).length,
-          active_in_progress: (data.tasks || []).filter((t: any) => t.status === 'IN_PROGRESS').length,
-          completed: (data.tasks || []).filter((t: any) => t.status !== 'IN_PROGRESS').length,
-          total_seconds: data.total_task_seconds || 0,
-          total_hours: data.total_task_hours || 0
-        }
-      });
     } catch (err: any) {
       console.error('Failed to load tasks', err);
     } finally {
@@ -316,13 +356,15 @@ export default function Tracker() {
     fetchStatus();
     fetchDailyTasks(selectedTaskDate, taskFilterProject);
     fetchProjectSuggestions();
+    fetchMonthlyAttendance();
     const syncInterval = setInterval(() => {
       if (document.hidden) return; // Pause sync polling when tab is hidden
       fetchStatus();
       fetchDailyTasks(selectedTaskDate, taskFilterProject);
+      fetchMonthlyAttendance();
     }, 30000);
     return () => clearInterval(syncInterval);
-  }, [selectedTaskDate, taskFilterProject]);
+  }, [selectedTaskDate, taskFilterProject, fetchMonthlyAttendance]);
 
   // Single Unified Central Tracker Timer (MUTUALLY EXCLUSIVE)
   // At any moment, ONLY ONE timer runs: Work/Task timer OR Break timer. NEVER BOTH.
@@ -418,6 +460,7 @@ export default function Tracker() {
       setShowEndModal(false);
       await fetchStatus();
       await fetchDailyTasks();
+      await fetchMonthlyAttendance();
       
       if (action === 'START_WORK') setSuccessMsg('Workday started successfully.');
       else if (action === 'START_BREAK') setSuccessMsg('Break started. Enjoy your break!');
@@ -470,6 +513,7 @@ export default function Tracker() {
       setTimeout(() => setSuccessMsg(''), 4000);
       await fetchStatus();
       await fetchDailyTasks();
+      await fetchMonthlyAttendance();
       await fetchProjectSuggestions();
     } catch (err: any) {
       setErrorMsg(err.response?.data?.error || 'Failed to start workday. Please retry.');
@@ -504,6 +548,7 @@ export default function Tracker() {
       setTimeout(() => setSuccessMsg(''), 4000);
       await fetchStatus();
       await fetchDailyTasks();
+      await fetchMonthlyAttendance();
       await fetchProjectSuggestions();
     } catch (err: any) {
       setErrorMsg(err.response?.data?.error || 'Failed to start task.');
@@ -528,6 +573,7 @@ export default function Tracker() {
       setTimeout(() => setSuccessMsg(''), 4000);
       await fetchStatus();
       await fetchDailyTasks();
+      await fetchMonthlyAttendance();
       await fetchProjectSuggestions();
     } catch (err: any) {
       setErrorMsg(err.response?.data?.error || 'Failed to stop task.');
@@ -552,6 +598,7 @@ export default function Tracker() {
       setTimeout(() => setSuccessMsg(''), 4000);
       await fetchStatus();
       await fetchDailyTasks();
+      await fetchMonthlyAttendance();
       await fetchProjectSuggestions();
     } catch (err: any) {
       setErrorMsg(err.response?.data?.error || 'Failed to complete task.');
@@ -576,6 +623,7 @@ export default function Tracker() {
       setTimeout(() => setSuccessMsg(''), 4000);
       await fetchStatus();
       await fetchDailyTasks();
+      await fetchMonthlyAttendance();
       await fetchProjectSuggestions();
     } catch (err: any) {
       setErrorMsg(err.response?.data?.error || 'Failed to resume task.');
@@ -600,6 +648,7 @@ export default function Tracker() {
       setTimeout(() => setSuccessMsg(''), 4000);
       await fetchStatus();
       await fetchDailyTasks();
+      await fetchMonthlyAttendance();
       await fetchProjectSuggestions();
     } catch (err: any) {
       setErrorMsg(err.response?.data?.error || 'Failed to complete task.');
@@ -663,6 +712,7 @@ export default function Tracker() {
       setTimeout(() => setSuccessMsg(''), 4000);
       await fetchStatus();
       await fetchDailyTasks();
+      await fetchMonthlyAttendance();
     } catch (err: any) {
       setErrorMsg(err.response?.data?.error || 'Failed to transition to next task.');
     } finally {
@@ -840,15 +890,6 @@ export default function Tracker() {
           >
             <Calendar size={14} className="text-indigo-600" />
             <span className="hidden sm:inline">Monthly Timesheet</span>
-          </button>
-
-          <button
-            onClick={() => navigate('/analytics')}
-            className="clay-btn clay-btn-secondary px-3 py-2 text-xs font-semibold rounded-xl"
-            title="View Analytics"
-          >
-            <TrendingUp size={14} className="text-indigo-600" />
-            <span className="hidden sm:inline">Analytics</span>
           </button>
 
           {isAdmin && (
@@ -1362,153 +1403,131 @@ export default function Tracker() {
           </div>
 
           {/* ============================================================== */}
-          {/* RIGHT COLUMN: Tasks List, Task History & Analytics (~60%)       */}
+          {/* RIGHT COLUMN: My Monthly Attendance & Today's Tasks (~60%)     */}
           {/* ============================================================== */}
-          <div className="flex flex-col gap-3 min-h-0 lg:overflow-hidden">
+          <div className="flex flex-col gap-3 min-h-0 lg:overflow-hidden flex-1">
             
-            {/* Segmented View Mode Switcher + Date Selector (Pinned above results) */}
-            <div className="clay-card-flat p-2 sm:p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0">
-              <div className="inline-flex rounded-xl bg-slate-200/50 p-1 flex-wrap gap-1">
-                <button
-                  type="button"
-                  onClick={() => setWorkViewMode('tasks')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                    workViewMode === 'tasks'
-                      ? 'bg-white text-indigo-700 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <ListTodo size={14} />
-                  <span>Today's Tasks ({dailyTasks.length})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setWorkViewMode('projects')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                    workViewMode === 'projects'
-                      ? 'bg-white text-indigo-700 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <History size={14} />
-                  <span>Task History</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setWorkViewMode('analytics')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                    workViewMode === 'analytics'
-                      ? 'bg-white text-indigo-700 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <TrendingUp size={14} />
-                  <span>Analytics</span>
-                </button>
-              </div>
+            {/* MY MONTHLY ATTENDANCE SUMMARY CARD */}
+            <div className="clay-card p-3.5 sm:p-4 shrink-0">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-200/60">
+                <div className="flex items-center gap-2">
+                  <Calendar size={17} className="text-indigo-600 shrink-0" />
+                  <h3 className="font-bold text-sm sm:text-base text-slate-900">My Monthly Attendance</h3>
+                </div>
 
-              <div className="flex items-center gap-2 self-start sm:self-auto">
-                <label className="text-xs font-bold text-slate-600">Date:</label>
-                <input
-                  type="date"
-                  value={selectedTaskDate}
-                  onChange={(e) => setSelectedTaskDate(e.target.value)}
-                  className="clay-input text-xs font-mono font-medium py-1.5 px-2.5 min-h-[36px]"
-                />
-                {selectedTaskDate !== getTodayIsoDate() && (
+                {/* Month/Year Selector */}
+                <div className="flex items-center gap-1.5 self-start sm:self-auto">
                   <button
                     type="button"
-                    onClick={() => setSelectedTaskDate(getTodayIsoDate())}
-                    className="clay-btn clay-btn-secondary px-2.5 py-1.5 min-h-[36px] text-xs font-bold rounded-xl"
-                    title="Switch to Today"
+                    onClick={handlePrevAttendanceMonth}
+                    disabled={loadingMonthlyAttendance}
+                    className="p-1 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 transition"
+                    title="Previous Month"
                   >
-                    Today
+                    <ChevronLeft size={15} />
                   </button>
-                )}
+                  <span className="font-bold text-xs sm:text-sm text-slate-800 px-2 min-w-[125px] text-center">
+                    {monthlyAttendance?.month_name || format(new Date(), 'MMMM yyyy')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleNextAttendanceMonth}
+                    disabled={loadingMonthlyAttendance}
+                    className="p-1 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 transition"
+                    title="Next Month"
+                  >
+                    <ChevronRight size={15} />
+                  </button>
+                </div>
               </div>
+
+              {/* 2 Interactive Metric Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-2.5">
+                {/* 1. Late Arrivals Card */}
+                <button
+                  type="button"
+                  onClick={() => handleOpenAttendanceModal('late')}
+                  className="clay-card-flat p-2.5 sm:p-3 text-left hover:border-amber-300 hover:bg-amber-50/20 hover:shadow-xs transition flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-amber-700 flex items-center gap-1.5">
+                      <AlertCircle size={13} className="text-amber-500 shrink-0" />
+                      <span>Late Arrivals</span>
+                    </p>
+                    <p className="text-lg sm:text-xl font-black text-slate-900 mt-0.5">
+                      {monthlyAttendance ? `${monthlyAttendance.late_arrivals_count} days` : '...'}
+                    </p>
+                  </div>
+                  <span className="text-[10px] sm:text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-lg group-hover:bg-amber-100 transition shrink-0">
+                    View Details →
+                  </span>
+                </button>
+
+                {/* 2. Completed 9 Hours Card */}
+                <button
+                  type="button"
+                  onClick={() => handleOpenAttendanceModal('nine_hours')}
+                  className="clay-card-flat p-2.5 sm:p-3 text-left hover:border-emerald-300 hover:bg-emerald-50/20 hover:shadow-xs transition flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1.5">
+                      <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+                      <span>Completed 9 Hours</span>
+                    </p>
+                    <p className="text-lg sm:text-xl font-black text-slate-900 mt-0.5">
+                      {monthlyAttendance ? `${monthlyAttendance.completed_9_hours_count} days` : '...'}
+                    </p>
+                  </div>
+                  <span className="text-[10px] sm:text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg group-hover:bg-emerald-100 transition shrink-0">
+                    View Details →
+                  </span>
+                </button>
+              </div>
+
+              {/* Helper text explaining cutoff & break exclusion */}
+              <p className="text-[11px] text-slate-500 mt-2 font-medium flex items-start gap-1.5">
+                <Info size={13} className="text-indigo-500 shrink-0 mt-0.5" />
+                <span>
+                  Office start time is 10:30 AM with a 5-minute grace period (10:35:00 AM IST cutoff). Breaks and non-working periods are excluded from the 9-hour counted work total.
+                </span>
+              </p>
             </div>
 
-            {/* View Mode A: Task History */}
-            {workViewMode === 'projects' ? (
-              <div className="flex-1 min-h-0 flex flex-col overflow-y-auto pr-1">
-                <EmployeeProjectTasks onTimerSync={fetchStatus} />
-              </div>
-            ) : workViewMode === 'analytics' ? (
-              /* View Mode C: Analytics */
-              <div className="flex-1 min-h-0 flex flex-col overflow-y-auto pr-1">
-                <div className="clay-card p-4 sm:p-5 space-y-5">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/60">
-                    <div>
-                      <h3 className="font-bold text-base sm:text-lg text-slate-900 flex items-center gap-2">
-                        <TrendingUp size={18} className="text-indigo-600" />
-                        <span>Personal Real-Time Task Analytics</span>
-                      </h3>
-                      <p className="text-xs text-slate-500 font-medium">
-                        Live charts and performance breakdown for your tracked workday ({formatDisplayDate(selectedTaskDate)})
-                      </p>
-                    </div>
-                    {projectBreakdown.length > 0 && (
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs font-bold text-slate-600">Filter Project:</label>
-                        <select
-                          value={taskFilterProject}
-                          onChange={(e) => setTaskFilterProject(e.target.value)}
-                          className="clay-input text-xs font-medium py-1.5 px-2.5 min-w-[150px]"
-                        >
-                          <option value="">All Projects</option>
-                          {projectBreakdown.map((p) => (
-                            <option key={p.project_name} value={p.project_name}>
-                              {p.project_name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
+            <div className="clay-card p-4 sm:p-5 flex-1 min-h-0 flex flex-col">
+              {/* Header & Filter (Pinned) */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/60 shrink-0">
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <ListTodo size={18} className="text-indigo-600 shrink-0" />
+                    <h3 className="font-bold text-sm sm:text-base text-slate-900">Today's Tasks</h3>
+                    <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200/80">
+                      {dailyTasks.length}
+                    </span>
                   </div>
-
-                  <DailyTaskAnalyticsDashboard
-                    data={taskReportData}
-                    filterDate={selectedTaskDate}
-                    filterEmpId=""
-                    filterProject={taskFilterProject}
-                    onClearFilters={() => {
-                      setTaskFilterProject('');
-                    }}
-                    onSetToday={() => {
-                      setSelectedTaskDate(getTodayIsoDate());
-                    }}
-                    isLoading={loadingTasks}
-                  />
-                </div>
-              </div>
-            ) : (
-              /* View Mode B: Detailed Tasks List & Project Summary */
-              <div className="clay-card p-4 sm:p-5 flex-1 min-h-0 flex flex-col">
-                {/* Header & Filter (Pinned) */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/60 shrink-0">
-                  <div>
-                    <h3 className="font-bold text-sm sm:text-base text-slate-900">Recorded Tasks</h3>
-                    <p className="text-[11px] text-slate-500 font-medium">Daily time entries and completed work sessions</p>
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-700">
+                    <Calendar size={13} className="text-indigo-600 shrink-0" />
+                    <span>Today • {format(new Date(), 'dd MMM yyyy')}</span>
                   </div>
-
-                  {projectBreakdown.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs font-bold text-slate-600">Filter Project:</label>
-                      <select
-                        value={taskFilterProject}
-                        onChange={(e) => setTaskFilterProject(e.target.value)}
-                        className="clay-input text-xs font-medium py-1.5 px-2.5 min-w-[150px]"
-                      >
-                        <option value="">All Projects</option>
-                        {projectBreakdown.map((p) => (
-                          <option key={p.project_name} value={p.project_name}>
-                            {p.project_name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
                 </div>
+
+                {projectBreakdown.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-bold text-slate-600">Filter Project:</label>
+                    <select
+                      value={taskFilterProject}
+                      onChange={(e) => setTaskFilterProject(e.target.value)}
+                      className="clay-input text-xs font-medium py-1.5 px-2.5 min-w-[150px]"
+                    >
+                      <option value="">All Projects</option>
+                      {projectBreakdown.map((p) => (
+                        <option key={p.project_name} value={p.project_name}>
+                          {p.project_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
 
                 {/* Project Summary Strip (Pinned) */}
                 <div className="clay-inset-well p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 my-3 shrink-0">
@@ -1614,10 +1633,158 @@ export default function Tracker() {
                   </div>
                 )}
               </div>
-            )}
           </div>
         </div>
       </main>
+
+      {/* ======================================================== */}
+      {/* MODAL: MONTHLY ATTENDANCE DETAILS                        */}
+      {/* ======================================================== */}
+      {showAttendanceModal && (
+        <div className="clay-modal-overlay">
+          <div className="clay-modal-dialog p-5 sm:p-6 max-w-2xl w-full max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 shrink-0">
+              <div>
+                <h3 className="text-base sm:text-lg font-bold text-slate-900">
+                  Monthly Attendance Details
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">
+                  {monthlyAttendance?.month_name} • Server-Verified Attendance Records
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAttendanceModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Filter Tabs */}
+            <div className="flex items-center gap-2 my-3 shrink-0 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setAttendanceModalTab('late')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-xl transition ${
+                  attendanceModalTab === 'late'
+                    ? 'bg-amber-100 text-amber-900 border border-amber-300 shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Late Arrivals ({monthlyAttendance?.late_arrivals_count || 0})
+              </button>
+              <button
+                type="button"
+                onClick={() => setAttendanceModalTab('nine_hours')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-xl transition ${
+                  attendanceModalTab === 'nine_hours'
+                    ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Completed 9 Hours ({monthlyAttendance?.completed_9_hours_count || 0})
+              </button>
+              <button
+                type="button"
+                onClick={() => setAttendanceModalTab('all')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-xl transition ${
+                  attendanceModalTab === 'all'
+                    ? 'bg-indigo-100 text-indigo-900 border border-indigo-300 shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                All Days ({monthlyAttendance?.days.length || 0})
+              </button>
+            </div>
+
+            {/* Attendance Table / List (Scrollable) */}
+            <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+              {filteredAttendanceDays.length === 0 ? (
+                <div className="text-center py-10 clay-inset-well rounded-2xl border-dashed text-slate-500 text-xs sm:text-sm font-medium">
+                  No attendance records matching this view.
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 text-xs">
+                  <div className="grid grid-cols-4 py-2 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0 bg-slate-50 rounded-lg">
+                    <span>Date</span>
+                    <span>First Clock-In</span>
+                    <span>Counted Work</span>
+                    <span className="text-right">Attendance Result</span>
+                  </div>
+                  {filteredAttendanceDays.map((d) => (
+                    <div
+                      key={d.date}
+                      className="grid grid-cols-4 items-center py-2.5 px-2 hover:bg-slate-50 transition rounded-lg"
+                    >
+                      <div>
+                        <p className="font-bold text-slate-900">{d.date_formatted}</p>
+                        <p className="text-[10px] text-slate-400 font-medium">{d.day_of_week}</p>
+                      </div>
+
+                      <div>
+                        <p className="font-mono font-bold text-slate-800">{d.first_clock_in_short}</p>
+                        {d.first_clock_in !== '-' && (
+                          <span
+                            className={`inline-block text-[9px] font-bold px-1.5 py-0.2 rounded ${
+                              d.is_late
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}
+                          >
+                            {d.is_late ? 'Late (>10:35 AM)' : 'On Time'}
+                          </span>
+                        )}
+                      </div>
+
+                      <div>
+                        <p className="font-mono font-bold text-slate-800">{d.counted_work_formatted}</p>
+                        {d.has_record && (
+                          <span
+                            className={`inline-block text-[9px] font-bold px-1.5 py-0.2 rounded ${
+                              d.completed_9_hours
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {d.completed_9_hours ? '≥ 9 Hours' : '< 9 Hours'}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="text-right">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            d.attendance_result.includes('Completed 9h')
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : d.is_late
+                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                              : d.has_record
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}
+                        >
+                          {d.attendance_result}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-200 flex justify-end shrink-0 mt-2">
+              <button
+                type="button"
+                onClick={() => setShowAttendanceModal(false)}
+                className="clay-btn clay-btn-secondary px-4 py-1.5 text-xs font-semibold rounded-xl"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ======================================================== */}
       {/* MODAL 1: START WORKDAY WITH INITIAL TASK */}

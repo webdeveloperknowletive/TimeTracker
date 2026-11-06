@@ -13,9 +13,11 @@ urlpatterns = [
     # Tracker
     path('tracker/status/', views.status_view, name='status'),
     path('tracker/action/', views.action_view, name='action'),
+    path('attendance/monthly-summary/', views.employee_monthly_attendance_summary_view, name='monthly_attendance_summary'),
     
     # Admin Dashboard & Overview
     path('admin/dashboard/', views.admin_dashboard, name='admin_dashboard'),
+    path('admin/attendance/monthly-summary/', views.admin_monthly_attendance_summary_view, name='admin_monthly_attendance_summary'),
     
     # Reports & Exports (Place export before base reports to guarantee resolution)
     path('admin/reports/export/', views.export_reports_view, name='export_reports'),

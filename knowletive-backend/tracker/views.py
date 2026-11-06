@@ -8,7 +8,7 @@ import secrets
 import calendar
 import zoneinfo
 from collections import defaultdict
-from datetime import datetime, timezone, timedelta, date
+from datetime import datetime, timezone, timedelta, date, time
 from django.db import models, transaction
 from django.core.cache import cache
 from django.contrib.auth import authenticate
@@ -217,6 +217,213 @@ def calculate_day_metrics(events_for_day, now_utc=None):
         ],
         'current_segment_start': state_start_dt.isoformat().replace("+00:00", "Z") if state_start_dt else None,
         'events': events_sorted
+    }
+
+
+def calculate_monthly_attendance_summary(target_user, year, month, now_utc=None):
+    """
+    Calculates monthly attendance summary for target_user in Asia/Kolkata (IST):
+    - Late Arrivals: first valid attendance clock-in of the day > 10:35:00 AM IST.
+      (Office start: 10:30 AM + 5 min grace = 10:35:00 AM IST cutoff).
+      First clock-in at or before 10:35:00 AM IST is on time.
+      First clock-in after 10:35:00 AM IST is late.
+      Missing clock-in must not be counted as late.
+      Count each attendance date once, even with multiple sessions or sign-ins.
+    - Completed 9 Hours: counted work duration for the day >= 9 hours (32400 seconds).
+      Excludes breaks, paused attendance time, and time after End Workday or Sign Out.
+      Uses attendance work sessions, not task timers.
+      Combines valid sessions from the same day without counting overlapping time twice.
+      Splits sessions crossing midnight in IST correctly across calendar days.
+      Today qualifies once 9 hours are reached.
+    """
+    if now_utc is None:
+        now_utc = datetime.now(timezone.utc)
+    now_ist = now_utc.astimezone(IST_TZ)
+    today_ist = now_ist.date()
+
+    num_days = calendar.monthrange(year, month)[1]
+    month_name = date(year, month, 1).strftime('%B %Y')
+
+    all_events = storage.get_events_for_user(target_user.id)
+    parsed_events = []
+    for ev in all_events:
+        ts_utc = parse_iso_utc(ev.get('timestamp'))
+        if ts_utc:
+            parsed_events.append({
+                'event_type': ev.get('event_type'),
+                'timestamp': ts_utc,
+                'source': ev.get('source', 'web')
+            })
+    parsed_events.sort(key=lambda x: x['timestamp'])
+
+    # Build discrete non-break work intervals [start_utc, end_utc]
+    work_intervals = []
+    current_work_start = None
+
+    for ev in parsed_events:
+        ev_type = ev['event_type']
+        ev_dt = ev['timestamp']
+
+        if ev_type in ['START_WORK', 'RESUME_WORK']:
+            if current_work_start is None:
+                current_work_start = ev_dt
+        elif ev_type in ['START_BREAK', 'END_WORK']:
+            if current_work_start is not None:
+                if ev_dt > current_work_start:
+                    work_intervals.append((current_work_start, ev_dt))
+                current_work_start = None
+
+    # If the user is currently working on today's date, include active elapsed segment up to now_utc
+    if current_work_start is not None and now_utc > current_work_start:
+        if parsed_events and parsed_events[-1]['event_type'] in ['START_WORK', 'RESUME_WORK']:
+            work_intervals.append((current_work_start, now_utc))
+
+    # Identify first valid attendance clock-in for each IST calendar date
+    first_clock_in_by_date = {}
+    for ev in parsed_events:
+        if ev['event_type'] == 'START_WORK':
+            ev_ist = ev['timestamp'].astimezone(IST_TZ)
+            ev_date = ev_ist.date()
+            if ev_date not in first_clock_in_by_date:
+                first_clock_in_by_date[ev_date] = ev_ist
+
+    late_arrivals_count = 0
+    completed_9_hours_count = 0
+    days_data = []
+
+    for day_num in range(1, num_days + 1):
+        day_date = date(year, month, day_num)
+        date_str = day_date.isoformat()
+        day_of_week = day_date.strftime('%A')
+        date_formatted = day_date.strftime('%d %b %Y')
+        is_today = (day_date == today_ist)
+        is_future = (day_date > today_ist)
+
+        # Day boundaries in UTC based on Asia/Kolkata midnight
+        day_start_ist = datetime(year, month, day_num, 0, 0, 0, tzinfo=IST_TZ)
+        day_end_ist = day_start_ist + timedelta(days=1)
+        day_start_utc = day_start_ist.astimezone(timezone.utc)
+        day_end_utc = day_end_ist.astimezone(timezone.utc)
+
+        # Clip all work intervals to this day
+        day_clips = []
+        for s_utc, e_utc in work_intervals:
+            clip_s = max(s_utc, day_start_utc)
+            clip_e = min(e_utc, day_end_utc)
+            if clip_e > clip_s:
+                day_clips.append((clip_s, clip_e))
+
+        # Merge overlapping intervals so no duration is counted twice
+        day_clips.sort(key=lambda x: x[0])
+        merged = []
+        for s, e in day_clips:
+            if not merged:
+                merged.append([s, e])
+            else:
+                if s <= merged[-1][1]:
+                    merged[-1][1] = max(merged[-1][1], e)
+                else:
+                    merged.append([s, e])
+
+        total_work_seconds = sum(int((e - s).total_seconds()) for s, e in merged)
+
+        first_clock_in_ist = first_clock_in_by_date.get(day_date)
+        has_record = (first_clock_in_ist is not None or total_work_seconds > 0)
+
+        # Cutoff: 10:35:00 AM IST
+        # First clock-in at or before 10:35:00 AM IST is on time.
+        # First clock-in after 10:35:00 AM IST is late.
+        # Missing clock-in must not be counted as late.
+        is_late = False
+        if first_clock_in_ist:
+            clock_in_time = first_clock_in_ist.time()
+            if clock_in_time > time(10, 35, 0):
+                is_late = True
+
+        completed_9h = (total_work_seconds >= 9 * 3600)
+
+        if is_late:
+            late_arrivals_count += 1
+        if completed_9h:
+            completed_9_hours_count += 1
+
+        if has_record:
+            late_str = "Late Arrival" if is_late else "On Time"
+            nine_str = "Completed 9h" if completed_9h else "Under 9h"
+            result_str = f"{late_str} • {nine_str}"
+        elif is_future:
+            result_str = "Upcoming"
+        elif day_date.weekday() >= 5:
+            result_str = "Weekend"
+        else:
+            result_str = "No Record"
+
+        hours = total_work_seconds // 3600
+        minutes = (total_work_seconds % 3600) // 60
+        seconds = total_work_seconds % 60
+        work_formatted = f"{hours}h {minutes:02d}m" if total_work_seconds >= 60 else (f"{seconds}s" if total_work_seconds > 0 else "0m")
+
+        # Determine final clock-out (for ongoing days: 'Working' or 'On Break')
+        final_clock_out = '-'
+        if is_today:
+            if parsed_events:
+                last_ev = parsed_events[-1]
+                if last_ev['event_type'] in ['START_WORK', 'RESUME_WORK']:
+                    final_clock_out = 'Working'
+                elif last_ev['event_type'] == 'START_BREAK':
+                    final_clock_out = 'On Break'
+                elif last_ev['event_type'] == 'END_WORK':
+                    final_clock_out = last_ev['timestamp'].astimezone(IST_TZ).strftime('%I:%M %p')
+        else:
+            day_end_events = [
+                ev for ev in parsed_events
+                if ev['event_type'] == 'END_WORK' and ev['timestamp'].astimezone(IST_TZ).date() == day_date
+            ]
+            if day_end_events:
+                final_clock_out = day_end_events[-1]['timestamp'].astimezone(IST_TZ).strftime('%I:%M %p')
+            elif has_record and day_clips:
+                last_clip_end = max(e for _, e in day_clips)
+                if last_clip_end < day_end_utc:
+                    final_clock_out = last_clip_end.astimezone(IST_TZ).strftime('%I:%M %p')
+                else:
+                    final_clock_out = '12:00 AM (Next Day)'
+
+        late_display = '-'
+        if has_record and first_clock_in_ist:
+            late_display = 'Late' if is_late else 'On Time'
+
+        nine_hours_display = '-'
+        if has_record:
+            nine_hours_display = 'Yes' if completed_9h else 'No'
+
+        days_data.append({
+            'date': date_str,
+            'date_formatted': date_formatted,
+            'day_of_week': day_of_week,
+            'first_clock_in': first_clock_in_ist.strftime('%I:%M:%S %p') if first_clock_in_ist else '-',
+            'first_clock_in_short': first_clock_in_ist.strftime('%I:%M %p') if first_clock_in_ist else '-',
+            'first_clock_in_iso': first_clock_in_ist.isoformat() if first_clock_in_ist else None,
+            'final_clock_out': final_clock_out,
+            'late_display': late_display,
+            'nine_hours_display': nine_hours_display,
+            'counted_work_seconds': total_work_seconds,
+            'counted_work_formatted': work_formatted,
+            'counted_work_digital': f"{hours:02d}:{minutes:02d}:{seconds:02d}",
+            'is_late': is_late,
+            'completed_9_hours': completed_9h,
+            'has_record': has_record,
+            'is_today': is_today,
+            'attendance_result': result_str
+        })
+
+    return {
+        'year': year,
+        'month': month,
+        'month_name': month_name,
+        'late_arrivals_count': late_arrivals_count,
+        'completed_9_hours_count': completed_9_hours_count,
+        'total_days_worked': sum(1 for d in days_data if d['has_record']),
+        'days': days_data
     }
 
 
@@ -953,6 +1160,100 @@ def action_view(request):
     # Server writes timestamp, ignores any client timestamp
     res = storage.record_event(request.user.id, action, source=source)
     return Response({'success': True, 'event': res})
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def employee_monthly_attendance_summary_view(request):
+    """
+    Returns the monthly attendance summary:
+    - Late Arrivals count (10:35:00 AM IST cutoff)
+    - Completed 9 Hours count (counted work duration >= 9 hours)
+    - Date-wise list of attendance results
+    Enforces employee isolation: employees can only view their own summary.
+    """
+    user = request.user
+    requested_user_id = request.GET.get('user_id')
+    if user.role == 'ADMIN' and requested_user_id:
+        try:
+            target_user = User.objects.get(id=int(requested_user_id))
+        except (User.DoesNotExist, ValueError):
+            return Response({'error': 'User not found.'}, status=404)
+    else:
+        target_user = user
+
+    now_utc = datetime.now(timezone.utc)
+    now_ist = now_utc.astimezone(IST_TZ)
+
+    try:
+        year = int(request.GET.get('year', now_ist.year))
+    except (ValueError, TypeError):
+        year = now_ist.year
+
+    try:
+        month = int(request.GET.get('month', now_ist.month))
+        if month < 1 or month > 12:
+            month = now_ist.month
+    except (ValueError, TypeError):
+        month = now_ist.month
+
+    data = calculate_monthly_attendance_summary(target_user, year, month, now_utc)
+    return Response(data)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def admin_monthly_attendance_summary_view(request):
+    """
+    Returns monthly attendance summary for every employee.
+    Admin-only endpoint.
+    Uses identical calculations as employee monthly attendance.
+    """
+    if request.user.role != 'ADMIN':
+        return Response({'error': 'Admin permissions required.'}, status=403)
+
+    now_utc = datetime.now(timezone.utc)
+    now_ist = now_utc.astimezone(IST_TZ)
+
+    try:
+        year = int(request.GET.get('year', now_ist.year))
+    except (ValueError, TypeError):
+        year = now_ist.year
+
+    try:
+        month = int(request.GET.get('month', now_ist.month))
+        if month < 1 or month > 12:
+            month = now_ist.month
+    except (ValueError, TypeError):
+        month = now_ist.month
+
+    # Get all active employees
+    employees = User.objects.filter(role='EMPLOYEE', is_active=True).order_by('first_name', 'last_name')
+
+    emp_summaries = []
+    for emp in employees:
+        summary = calculate_monthly_attendance_summary(emp, year, month, now_utc)
+        emp_summaries.append({
+            'id': emp.id,
+            'employee_id': emp.employee_id or f"EMP{emp.id:03d}",
+            'name': f"{emp.first_name} {emp.last_name}".strip() or emp.username,
+            'email': emp.email,
+            'department': emp.department or 'General',
+            'designation': getattr(emp, 'designation', '') or '',
+            'late_arrivals_count': summary['late_arrivals_count'],
+            'completed_9_hours_count': summary['completed_9_hours_count'],
+            'total_days_worked': summary['total_days_worked'],
+            'days': summary['days']
+        })
+
+    month_name = date(year, month, 1).strftime('%B %Y')
+
+    return Response({
+        'year': year,
+        'month': month,
+        'month_name': month_name,
+        'employees': emp_summaries
+    })
 
 
 # ==========================================
@@ -2405,9 +2706,26 @@ def format_task_seconds(sec):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def daily_tasks_view(request):
+    """
+    Returns Today's Tasks for the authenticated employee (or requested employee for admin).
+    - Shows all tasks worked on today (running, paused, stopped, and completed).
+    - Includes tasks created earlier if they have work activity or were completed today.
+    - Excludes tasks with only previous-day activity.
+    - Uses Asia/Kolkata (IST) consistently.
+    - Shows each task once and calculates duration from today's actual work segments, excluding breaks.
+    """
     now_utc = datetime.now(timezone.utc)
     now_ist = now_utc.astimezone(IST_TZ)
-    target_date = request.GET.get('date', now_ist.date().isoformat())
+    target_date_param = request.GET.get('date', now_ist.date().isoformat())
+    try:
+        target_date_obj = datetime.strptime(target_date_param.strip(), '%Y-%m-%d').date()
+    except Exception:
+        target_date_obj = now_ist.date()
+    target_date = target_date_obj.isoformat()
+
+    day_start_utc = datetime(target_date_obj.year, target_date_obj.month, target_date_obj.day, 0, 0, 0, tzinfo=IST_TZ).astimezone(timezone.utc)
+    day_end_utc = day_start_utc + timedelta(days=1)
+    is_today_ist = (target_date_obj == now_ist.date())
 
     requested_user_id = request.GET.get('user_id')
     if request.user.role != 'ADMIN':
@@ -2430,55 +2748,219 @@ def daily_tasks_view(request):
                 return Response({'error': 'No employees found in the system.'}, status=404)
 
     filter_project = request.GET.get('project')
-    raw_tasks = storage.get_tasks_for_user_and_date(target_user.id, target_date)
+    logs_qs = TaskLog.objects.filter(user_id=target_user.id)
     if filter_project and filter_project.strip():
-        raw_tasks = [t for t in raw_tasks if (t.get('project_name') or '').strip().lower() == filter_project.strip().lower()]
+        logs_qs = logs_qs.filter(project_name__iexact=filter_project.strip())
+    raw_logs = list(logs_qs.order_by('created_at'))
+
+    grouped_tasks = {}
+
+    for tl in raw_logs:
+        dur_sec = 0
+        earliest_s = None
+        latest_e = None
+        is_running = False
+        is_paused = False
+        has_day_activity = False
+
+        segs = tl.work_segments if isinstance(tl.work_segments, list) else []
+        for seg in segs:
+            if isinstance(seg, dict):
+                st = seg.get('start_time') or seg.get('start')
+                et = seg.get('end_time') or seg.get('end')
+                if st and et:
+                    try:
+                        s_dt = parse_iso_utc(st)
+                        e_dt = parse_iso_utc(et)
+                        if s_dt and e_dt and e_dt > s_dt:
+                            ov_s = max(s_dt, day_start_utc)
+                            ov_e = min(e_dt, day_end_utc)
+                            if ov_e > ov_s:
+                                dur_sec += int((ov_e - ov_s).total_seconds())
+                                has_day_activity = True
+                                if earliest_s is None or ov_s < earliest_s: earliest_s = ov_s
+                                if latest_e is None or ov_e > latest_e: latest_e = ov_e
+                    except Exception:
+                        pass
+
+        # Live in-progress or paused segment
+        if tl.status == 'IN_PROGRESS':
+            cur_st = tl.current_segment_start or tl.start_time
+            if cur_st:
+                try:
+                    s_dt = parse_iso_utc(cur_st)
+                    if s_dt:
+                        ov_s = max(s_dt, day_start_utc)
+                        ov_e = min(now_utc, day_end_utc)
+                        if is_today_ist:
+                            is_running = True
+                            has_day_activity = True
+                            if ov_e > ov_s:
+                                dur_sec += int((ov_e - ov_s).total_seconds())
+                            if earliest_s is None or ov_s < earliest_s: earliest_s = ov_s
+                            latest_e = now_utc
+                except Exception:
+                    pass
+        elif tl.status == 'PAUSED':
+            if is_today_ist:
+                is_paused = True
+                has_day_activity = True
+
+        # Fallback if no segments recorded
+        if not segs and tl.start_time:
+            try:
+                s_dt = parse_iso_utc(tl.start_time)
+                if s_dt:
+                    if tl.end_time:
+                        e_dt = parse_iso_utc(tl.end_time)
+                    elif tl.status == 'IN_PROGRESS' and is_today_ist:
+                        e_dt = now_utc
+                        is_running = True
+                        has_day_activity = True
+                    else:
+                        base_sec = int(tl.duration_seconds or 0)
+                        e_dt = s_dt + timedelta(seconds=base_sec)
+                    if e_dt and e_dt > s_dt:
+                        ov_s = max(s_dt, day_start_utc)
+                        ov_e = min(e_dt, day_end_utc)
+                        if ov_e > ov_s:
+                            dur_sec += int((ov_e - ov_s).total_seconds())
+                            has_day_activity = True
+                            if earliest_s is None or ov_s < earliest_s: earliest_s = ov_s
+                            if latest_e is None or ov_e > latest_e: latest_e = ov_e
+            except Exception:
+                pass
+
+        # Completed today check
+        is_completed_today = False
+        if tl.completed_at:
+            try:
+                c_dt = parse_iso_utc(tl.completed_at)
+                if c_dt and day_start_utc <= c_dt < day_end_utc:
+                    has_day_activity = True
+                    is_completed_today = True
+                    if latest_e is None or c_dt > latest_e: latest_e = c_dt
+            except Exception:
+                pass
+
+        if tl.date == target_date:
+            has_day_activity = True
+
+        # EXCLUDE tasks with only previous-day activity
+        if not has_day_activity and dur_sec == 0 and not is_running and not is_paused and not is_completed_today:
+            continue
+
+        # Grouping key so each task is shown once
+        if tl.project_task_id:
+            g_key = f"pt_{tl.project_task_id}"
+        elif tl.project_id:
+            g_key = f"p_{tl.project_id}_{(tl.task_name or '').strip().lower()}"
+        else:
+            g_key = f"pn_{(tl.project_name or '').strip().lower()}_{(tl.task_name or '').strip().lower()}"
+
+        if g_key not in grouped_tasks:
+            grouped_tasks[g_key] = {
+                'task_log_id': tl.task_id,
+                'project_task_id': tl.project_task_id,
+                'project_id': tl.project_id,
+                'employee_id': tl.employee_id or target_user.employee_id or f"EMP{target_user.id:03d}",
+                'employee_name': tl.employee_name or f"{target_user.first_name} {target_user.last_name}".strip() or target_user.username,
+                'project_name': tl.project_name,
+                'task_name': tl.task_name,
+                'description': tl.description or '',
+                'duration_seconds': dur_sec,
+                'earliest_start': earliest_s,
+                'latest_end': latest_e,
+                'is_running': is_running,
+                'is_paused': is_paused,
+                'is_completed_today': is_completed_today,
+                'raw_status': tl.status,
+                'created_at': tl.created_at or ''
+            }
+        else:
+            item = grouped_tasks[g_key]
+            item['duration_seconds'] += dur_sec
+            if earliest_s:
+                if item['earliest_start'] is None or earliest_s < item['earliest_start']:
+                    item['earliest_start'] = earliest_s
+            if latest_e:
+                if item['latest_end'] is None or latest_e > item['latest_end']:
+                    item['latest_end'] = latest_e
+            if is_running:
+                item['is_running'] = True
+                item['raw_status'] = 'IN_PROGRESS'
+            elif is_paused and not item['is_running']:
+                item['is_paused'] = True
+                item['raw_status'] = 'PAUSED'
+            elif (tl.status == 'COMPLETED' or is_completed_today) and not item['is_running'] and not item['is_paused']:
+                item['raw_status'] = 'COMPLETED'
+            if tl.description and tl.description.strip():
+                item['description'] = tl.description.strip()
+            item['task_log_id'] = tl.task_id
+
+    # Sort grouped tasks: running/paused first, then earliest_start descending
+    sorted_items = sorted(
+        grouped_tasks.values(),
+        key=lambda it: (
+            1 if (it['is_running'] or it['is_paused']) else 0,
+            it['earliest_start'] or datetime.min.replace(tzinfo=timezone.utc)
+        ),
+        reverse=True
+    )
 
     processed_tasks = []
     total_task_seconds = 0
     project_totals = {}
     active_task = None
 
-    for idx, t in enumerate(raw_tasks, start=1):
-        start_dt = parse_iso_utc(t['start_time'])
-        end_dt = parse_iso_utc(t['end_time']) if t['end_time'] else None
-
-        dur_sec = storage.calculate_task_duration(t, now_utc)
+    for idx, it in enumerate(sorted_items, start=1):
+        dur_sec = it['duration_seconds']
         total_task_seconds += dur_sec
 
-        proj = t['project_name'] or 'Unassigned'
+        proj = it['project_name'] or 'Unassigned'
         if proj not in project_totals:
             project_totals[proj] = {'total_seconds': 0, 'count': 0}
         project_totals[proj]['total_seconds'] += dur_sec
         project_totals[proj]['count'] += 1
 
-        start_time_ist = start_dt.astimezone(IST_TZ).strftime('%I:%M:%S %p') if start_dt else '-'
-        end_time_ist = end_dt.astimezone(IST_TZ).strftime('%I:%M:%S %p') if end_dt else ('Paused (Break)' if t.get('status') == 'PAUSED' else 'In progress')
+        start_time_ist = it['earliest_start'].astimezone(IST_TZ).strftime('%I:%M:%S %p') if it['earliest_start'] else '-'
+        if it['is_running']:
+            end_time_ist = 'In progress'
+            status_display = 'IN_PROGRESS'
+        elif it['is_paused']:
+            end_time_ist = 'Paused (Break)'
+            status_display = 'PAUSED'
+        elif it['latest_end']:
+            end_time_ist = it['latest_end'].astimezone(IST_TZ).strftime('%I:%M:%S %p')
+            status_display = 'COMPLETED'
+        else:
+            end_time_ist = start_time_ist
+            status_display = 'COMPLETED'
 
         task_item = {
             'sr_no': idx,
-            'task_log_id': t['task_log_id'],
-            'employee_id': t.get('employee_id') or target_user.employee_id or f"EMP{target_user.id:03d}",
-            'employee_name': t.get('employee_name') or f"{target_user.first_name} {target_user.last_name}".strip() or target_user.username,
-            'project_name': t['project_name'],
-            'task_name': t['task_name'],
-            'description': t['description'],
-            'start_time': t['start_time'],
-            'end_time': t['end_time'],
+            'task_log_id': it['task_log_id'],
+            'project_task_id': it.get('project_task_id'),
+            'employee_id': it['employee_id'],
+            'employee_name': it['employee_name'],
+            'project_name': it['project_name'],
+            'task_name': it['task_name'],
+            'description': it['description'],
+            'start_time': it['earliest_start'].isoformat() if it['earliest_start'] else None,
+            'end_time': it['latest_end'].isoformat() if it['latest_end'] and not it['is_running'] else None,
             'start_time_formatted': start_time_ist,
             'end_time_formatted': end_time_ist,
             'duration_seconds': dur_sec,
-            'duration_seconds_base': int(t.get('duration_seconds') or 0),
-            'current_segment_start': t.get('current_segment_start'),
-            'work_segments': t.get('work_segments', []),
+            'duration_seconds_base': dur_sec,
             'duration_hours': round(dur_sec / 3600.0, 2),
             'duration_formatted': format_task_seconds(dur_sec),
-            'status': t['status']
+            'status': status_display
         }
         processed_tasks.append(task_item)
 
-        if t['status'] in ['IN_PROGRESS', 'PAUSED']:
-            active_task = task_item
+        if it['is_running'] or it['is_paused']:
+            if not active_task:
+                active_task = task_item
 
     project_breakdown = [
         {
