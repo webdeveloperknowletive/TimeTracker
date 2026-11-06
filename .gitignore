@@ -9,3 +9,5 @@ dist/
 !knowletive-extension/dist/
 build/
 coverage/
+backups/
+*.sql
