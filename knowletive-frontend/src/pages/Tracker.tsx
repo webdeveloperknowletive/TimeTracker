@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { 
   Play, Pause, LogOut, CheckCircle, Bell,
   Calendar, Info, AlertTriangle, ShieldCheck,
-  Plus, Edit2, Check, ArrowRight,
+  Plus, Check, ArrowRight,
   Clock, Shield, X, Coffee,
   CheckCircle2, Briefcase, ListTodo,
   MessageSquare, Download, Puzzle,
@@ -42,7 +42,7 @@ export default function Tracker() {
   const [currentSegmentStart, setCurrentSegmentStart] = useState<string | null>(null);
   const [startTime, setStartTime] = useState<string | null>(null);
   const [endTime, setEndTime] = useState<string | null>(null);
-  const [officeSettings, setOfficeSettings] = useState<any>({ work_start_time: '10:00', work_end_time: '19:00' });
+  const [officeSettings, setOfficeSettings] = useState<any>({ work_start_time: '10:30', work_end_time: '19:30' });
   
   // Real-time mutually exclusive timers (calculated from timestamps)
   const [elapsedWork, setElapsedWork] = useState<number>(0);
@@ -86,11 +86,8 @@ export default function Tracker() {
   // Modals for Task Management
   const [showStartWorkdayPrompt, setShowStartWorkdayPrompt] = useState<boolean>(false);
   const [showNewTaskModal, setShowNewTaskModal] = useState<boolean>(false);
-  const [showEndAndNextModal, setShowEndAndNextModal] = useState<boolean>(false);
   const [showEditTaskModal, setShowEditTaskModal] = useState<boolean>(false);
   const [editingTask, setEditingTask] = useState<any | null>(null);
-
-
 
   // Progress Note Modal
   const [loggingOut, setLoggingOut] = useState<boolean>(false);
@@ -98,9 +95,8 @@ export default function Tracker() {
   const [noteTargetTaskId, setNoteTargetTaskId] = useState<string>('');
   const [noteContent, setNoteContent] = useState<string>('');
 
-  // Project & Task Suggestions
+  // Project Suggestions
   const [existingProjects, setExistingProjects] = useState<any[]>([]);
-  const [unfinishedTasks, setUnfinishedTasks] = useState<any[]>([]);
 
   // Monthly Attendance Summary State
   const [attendanceMonth, setAttendanceMonth] = useState<number>(new Date().getMonth() + 1);
@@ -204,21 +200,6 @@ export default function Tracker() {
     } catch {}
   };
 
-  const handleNextProjectNameChange = async (name: string) => {
-    setNextTaskForm((prev) => ({ ...prev, project_name: name }));
-    const trimmed = name.trim();
-    if (!trimmed) {
-      setNextTaskForm((prev) => ({ ...prev, project_status: 'JUST_STARTED' }));
-      return;
-    }
-    try {
-      const res = await api.get(`/employee/project-status/?project_name=${encodeURIComponent(trimmed)}`);
-      if (res.data && res.data.status) {
-        setNextTaskForm((prev) => (prev.project_name.trim().toLowerCase() === trimmed.toLowerCase() ? { ...prev, project_status: res.data.status } : prev));
-      }
-    } catch {}
-  };
-
   // Form states
   interface TaskFormData {
     project_name: string;
@@ -229,14 +210,6 @@ export default function Tracker() {
   }
 
   const [taskForm, setTaskForm] = useState<TaskFormData>({
-    project_name: '',
-    task_name: '',
-    description: '',
-    project_status: 'JUST_STARTED',
-    project_task_id: ''
-  });
-
-  const [nextTaskForm, setNextTaskForm] = useState<TaskFormData>({
     project_name: '',
     task_name: '',
     description: '',
@@ -370,8 +343,6 @@ export default function Tracker() {
     try {
       const res = await api.get('/projects/');
       setExistingProjects(res.data.projects || []);
-      const tasksRes = await api.get('/tasks/my-tasks/?status=IN_PROGRESS&all_history=true');
-      setUnfinishedTasks(tasksRes.data.tasks || []);
     } catch {
       // Ignore
     }
@@ -393,9 +364,31 @@ export default function Tracker() {
 
   // Single Unified Central Tracker Timer (MUTUALLY EXCLUSIVE)
   // At any moment, ONLY ONE timer runs: Work/Task timer OR Break timer. NEVER BOTH.
+  // Enforces 7:30 PM IST workday cutoff: timer stops at cutoff and reconciles with server.
   useEffect(() => {
+    let reconciledForCutoff = false;
+
     const tick = () => {
       const nowMs = Date.now() - serverSkewMsRef.current;
+
+      // Calculate today's 7:30 PM IST cutoff in UTC ms (IST is UTC + 5:30 = +19800000ms)
+      const nowIstDate = new Date(nowMs + 19800000);
+      const y = nowIstDate.getUTCFullYear();
+      const m = nowIstDate.getUTCMonth();
+      const d = nowIstDate.getUTCDate();
+      // 19:30:00 IST is 14:00:00 UTC
+      const cutoffUtcMs = Date.UTC(y, m, d, 14, 0, 0);
+
+      // Clamp live time to cutoff at 7:30 PM IST so timers stop immediately
+      const effectiveNowMs = Math.min(nowMs, cutoffUtcMs);
+      const isPastCutoff = nowMs >= cutoffUtcMs;
+
+      // Reconcile with server once cutoff is reached
+      if (isPastCutoff && (status === 'Working' || status === 'On Break') && !reconciledForCutoff) {
+        reconciledForCutoff = true;
+        fetchStatus();
+        fetchDailyTasks();
+      }
 
       // Calculate TOTAL DAY TIME (includes breaks)
       if (startTime && status !== 'Not Started') {
@@ -404,7 +397,7 @@ export default function Tracker() {
           const endMs = new Date(endTime).getTime();
           setElapsedTotalDay(Math.max(0, Math.floor((endMs - startMs) / 1000)));
         } else {
-          setElapsedTotalDay(Math.max(0, Math.floor((nowMs - startMs) / 1000)));
+          setElapsedTotalDay(Math.max(0, Math.floor((effectiveNowMs - startMs) / 1000)));
         }
       } else {
         setElapsedTotalDay(0);
@@ -417,7 +410,7 @@ export default function Tracker() {
         const segAnchor = currentSegmentStart || startTime;
         if (segAnchor) {
           const segStartMs = new Date(segAnchor).getTime();
-          const extraSec = Math.max(0, Math.floor((nowMs - segStartMs) / 1000));
+          const extraSec = Math.max(0, Math.floor((effectiveNowMs - segStartMs) / 1000));
           activeWorkSec = serverTotalWorkBase + extraSec;
         } else {
           activeWorkSec = serverTotalWork;
@@ -433,7 +426,7 @@ export default function Tracker() {
           let openSegSec = 0;
           if (segAnchor) {
             const segStartMs = new Date(segAnchor).getTime();
-            openSegSec = Math.max(0, Math.floor((nowMs - segStartMs) / 1000));
+            openSegSec = Math.max(0, Math.floor((effectiveNowMs - segStartMs) / 1000));
           }
           const closedBaseSec = activeTask.closed_duration_seconds ?? activeTask.duration_seconds_base ?? 0;
           setActiveTaskElapsed(closedBaseSec + openSegSec);
@@ -449,7 +442,7 @@ export default function Tracker() {
         let activeBreakSec = serverTotalBreak;
         if (currentSegmentStart) {
           const segStartMs = new Date(currentSegmentStart).getTime();
-          const extraSec = Math.max(0, Math.floor((nowMs - segStartMs) / 1000));
+          const extraSec = Math.max(0, Math.floor((effectiveNowMs - segStartMs) / 1000));
           activeBreakSec = serverTotalBreakBase + extraSec;
         }
         setElapsedBreak(activeBreakSec);
@@ -554,13 +547,17 @@ export default function Tracker() {
     }
   };
 
-  // Start new task standalone
+  // Start new task (or switch if a task was active)
   const handleStartNewTask = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loadingAction) return;
     if (!taskForm.project_name.trim() || !taskForm.task_name.trim()) {
       setErrorMsg('Project Name and Task Name are required.');
       return;
     }
+
+    const wasSwitching = Boolean(activeTask);
+    const prevTaskName = activeTask?.task_name;
 
     setLoadingAction(true);
     setErrorMsg('');
@@ -571,12 +568,15 @@ export default function Tracker() {
         project_name: taskForm.project_name.trim(),
         task_name: taskForm.task_name.trim(),
         description: taskForm.description.trim(),
-        project_status: taskForm.project_status,
-        project_task_id: taskForm.project_task_id || undefined
+        project_status: taskForm.project_status
       });
       setShowNewTaskModal(false);
       setTaskForm({ project_name: '', task_name: '', description: '', project_status: 'JUST_STARTED', project_task_id: '' });
-      setSuccessMsg('Task started successfully.');
+      if (wasSwitching) {
+        setSuccessMsg(`Switched from "${prevTaskName}" to "${taskForm.task_name.trim()}".`);
+      } else {
+        setSuccessMsg('Task started successfully.');
+      }
       setTimeout(() => setSuccessMsg(''), 4000);
       await fetchStatus();
       await fetchDailyTasks();
@@ -589,9 +589,9 @@ export default function Tracker() {
     }
   };
 
-  // Stop active task timer (Leaves task In Progress)
-  const handleStopActiveTask = async () => {
-    if (!activeTask) return;
+  // End active task (stops only task tracking; attendance continues)
+  const handleEndActiveTask = async () => {
+    if (!activeTask || loadingAction) return;
     setLoadingAction(true);
     setErrorMsg('');
     setSuccessMsg('');
@@ -601,64 +601,14 @@ export default function Tracker() {
         task_log_id: activeTask.task_log_id,
         is_completed: false 
       });
-      setSuccessMsg(`Task "${activeTask.task_name}" stopped. Status remains In Progress.`);
+      setSuccessMsg(`Task "${activeTask.task_name}" ended. Attendance tracking continues.`);
       setTimeout(() => setSuccessMsg(''), 4000);
       await fetchStatus();
       await fetchDailyTasks();
       await fetchMonthlyAttendance();
       await fetchProjectSuggestions();
     } catch (err: any) {
-      setErrorMsg(err.response?.data?.error || 'Failed to stop task.');
-    } finally {
-      setLoadingAction(false);
-    }
-  };
-
-  // Explicitly mark active task Completed
-  const handleCompleteActiveTask = async () => {
-    if (!activeTask) return;
-    setLoadingAction(true);
-    setErrorMsg('');
-    setSuccessMsg('');
-
-    try {
-      await api.post('/tasks/end/', { 
-        task_log_id: activeTask.task_log_id,
-        is_completed: true 
-      });
-      setSuccessMsg(`Task "${activeTask.task_name}" marked as Completed!`);
-      setTimeout(() => setSuccessMsg(''), 4000);
-      await fetchStatus();
-      await fetchDailyTasks();
-      await fetchMonthlyAttendance();
-      await fetchProjectSuggestions();
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.error || 'Failed to complete task.');
-    } finally {
-      setLoadingAction(false);
-    }
-  };
-
-  // Resume an unfinished task
-  const handleResumeTask = async (task: any) => {
-    setLoadingAction(true);
-    setErrorMsg('');
-    setSuccessMsg('');
-    try {
-      await api.post('/tasks/start/', {
-        project_name: task.project_name,
-        task_name: task.task_name || task.title,
-        description: task.description || '',
-        project_task_id: task.project_task_id || task.task_id
-      });
-      setSuccessMsg(`Resumed work on "${task.task_name || task.title}".`);
-      setTimeout(() => setSuccessMsg(''), 4000);
-      await fetchStatus();
-      await fetchDailyTasks();
-      await fetchMonthlyAttendance();
-      await fetchProjectSuggestions();
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.error || 'Failed to resume task.');
+      setErrorMsg(err.response?.data?.error || 'Failed to end task.');
     } finally {
       setLoadingAction(false);
     }
@@ -716,41 +666,6 @@ export default function Tracker() {
   };
 
 
-
-  // End active task and start next task in one step
-  const handleEndAndStartNext = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeTask) return;
-    if (!nextTaskForm.project_name.trim() || !nextTaskForm.task_name.trim()) {
-      setErrorMsg('Next Project Name and Task Name are required.');
-      return;
-    }
-
-    setLoadingAction(true);
-    setErrorMsg('');
-    setSuccessMsg('');
-
-    try {
-      await api.post('/tasks/start/', {
-        project_name: nextTaskForm.project_name.trim(),
-        task_name: nextTaskForm.task_name.trim(),
-        description: nextTaskForm.description.trim(),
-        project_status: nextTaskForm.project_status
-      });
-
-      setShowEndAndNextModal(false);
-      setNextTaskForm({ project_name: '', task_name: '', description: '', project_status: 'JUST_STARTED', project_task_id: '' });
-      setSuccessMsg('Previous task completed and next task started.');
-      setTimeout(() => setSuccessMsg(''), 4000);
-      await fetchStatus();
-      await fetchDailyTasks();
-      await fetchMonthlyAttendance();
-    } catch (err: any) {
-      setErrorMsg(err.response?.data?.error || 'Failed to transition to next task.');
-    } finally {
-      setLoadingAction(false);
-    }
-  };
 
   // Open Edit Task Modal
   const openEditModal = async (task: any) => {
@@ -1009,7 +924,7 @@ export default function Tracker() {
             <div className="p-3 bg-amber-50/90 border border-amber-200/90 rounded-2xl flex items-center justify-between gap-3 text-amber-900 text-xs shadow-xs">
               <div className="flex items-center gap-2.5">
                 <Info size={15} className="text-amber-600 shrink-0" />
-                <span>Standard office hours start at <strong>{officeSettings.work_start_time} AM IST</strong>. Start your workday when ready.</span>
+                <span>Standard office hours are <strong>{officeSettings.work_start_time || '10:30'} AM – {officeSettings.work_end_time || '19:30'} IST</strong> (Arrival grace period through 10:35 AM). Workday closes automatically at 7:30 PM IST.</span>
               </div>
               <button 
                 onClick={() => setReminderDismissed(true)} 
@@ -1024,7 +939,7 @@ export default function Tracker() {
             <div className="p-3 bg-sky-50/90 border border-sky-200/90 rounded-2xl flex items-center justify-between gap-3 text-sky-900 text-xs shadow-xs">
               <div className="flex items-center gap-2.5">
                 <Info size={15} className="text-sky-600 shrink-0" />
-                <span>Scheduled workday finishes at <strong>{officeSettings.work_end_time} IST</strong>. Remember to clock out before leaving.</span>
+                <span>Workday closes automatically at <strong>7:30 PM IST</strong>. Any active attendance, tasks, and breaks will close at 7:30 PM.</span>
               </div>
               <button 
                 onClick={() => setReminderDismissed(true)} 
@@ -1114,7 +1029,7 @@ export default function Tracker() {
               {/* Central Digital Stopwatch */}
               <div className="text-center py-3 sm:py-4">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1">
-                  {status === 'Ended' ? 'Workday Completed' : status === 'Not Started' ? 'Tracker Not Started' : 'Total Hours Today'}
+                  {status === 'Ended' ? 'Workday Completed' : status === 'Not Started' ? 'Tracker Not Started' : 'Elapsed Attendance'}
                 </p>
                 <div className="font-mono text-3xl sm:text-4xl lg:text-4xl xl:text-5xl font-black tracking-tight text-slate-900 drop-shadow-xs">
                   {formatDigitalDuration(elapsedTotalDay)}
@@ -1158,7 +1073,7 @@ export default function Tracker() {
                   <div className="flex items-center justify-center gap-1 mb-0.5">
                     {status === 'Working' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />}
                     <p className={`text-[10px] font-bold uppercase tracking-wider truncate ${status === 'Working' ? 'text-emerald-800' : 'text-slate-500'}`}>
-                      Work {status === 'On Break' ? '(Frozen)' : ''}
+                      Work Time {status === 'On Break' ? '(Frozen)' : ''}
                     </p>
                   </div>
                   <p className={`text-xs sm:text-sm font-bold font-mono ${status === 'Working' ? 'text-emerald-700' : 'text-slate-700'}`}>
@@ -1170,7 +1085,7 @@ export default function Tracker() {
                   <div className="flex items-center justify-center gap-1 mb-0.5">
                     {status === 'On Break' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />}
                     <p className={`text-[10px] font-bold uppercase tracking-wider truncate ${status === 'On Break' ? 'text-amber-800' : 'text-slate-500'}`}>
-                      Break {status === 'Working' ? '(Frozen)' : ''}
+                      Break Time {status === 'Working' ? '(Frozen)' : ''}
                     </p>
                   </div>
                   <p className={`text-xs sm:text-sm font-bold font-mono ${status === 'On Break' ? 'text-amber-700' : 'text-slate-700'}`}>
@@ -1309,79 +1224,39 @@ export default function Tracker() {
                   </div>
                 </div>
 
-                {/* Explanatory Helper */}
-                <p className="text-[11px] text-slate-400 font-medium italic">
-                  Pausing stops the timer. Mark Completed finishes the task.
-                </p>
-
-                {/* Action Buttons */}
+                {/* Action Buttons: Only Switch Task and End Task */}
                 <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200/60">
-                  {/* Primary action: Resume or Pause depending on state */}
-                  {status === 'On Break' ? (
-                    <button
-                      onClick={() => handleAction('RESUME_WORK')}
-                      disabled={loadingAction}
-                      className="clay-btn clay-btn-primary py-2 px-3.5 text-xs rounded-xl font-bold min-h-[38px]"
-                    >
-                      <Play size={13} className="fill-white" />
-                      <span>Resume Task</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleStopActiveTask}
-                      disabled={loadingAction}
-                      className="clay-btn clay-btn-secondary py-2 px-3.5 text-xs rounded-xl font-bold min-h-[38px]"
-                      title="Pause task timer (Leaves task In Progress)"
-                    >
-                      <Pause size={13} />
-                      <span>Pause Task</span>
-                    </button>
-                  )}
-
-                  {/* Secondary quick actions: Switch Task & Mark Completed */}
                   <button
-                    onClick={() => setShowEndAndNextModal(true)}
+                    type="button"
+                    onClick={() => {
+                      setTaskForm({
+                        project_name: '',
+                        task_name: '',
+                        description: '',
+                        project_status: activeTask.my_project_status || 'JUST_STARTED',
+                        project_task_id: ''
+                      });
+                      fetchProjectSuggestions();
+                      setShowNewTaskModal(true);
+                    }}
                     disabled={loadingAction}
-                    className="clay-btn clay-btn-primary py-2 px-3 text-xs rounded-xl font-semibold min-h-[38px]"
+                    className="clay-btn clay-btn-primary py-2 px-3.5 text-xs rounded-xl font-semibold min-h-[38px] flex items-center gap-1.5"
+                    title="Switch to a new task (ends current task upon successful submission)"
                   >
                     <span>Switch Task</span>
                     <ArrowRight size={13} />
                   </button>
 
                   <button
-                    onClick={handleCompleteActiveTask}
+                    type="button"
+                    onClick={handleEndActiveTask}
                     disabled={loadingAction}
-                    className="clay-btn clay-btn-success py-2 px-3 text-xs rounded-xl font-bold min-h-[38px]"
-                    title="Explicitly complete task and close work session"
+                    className="clay-btn clay-btn-secondary py-2 px-3.5 text-xs rounded-xl font-bold min-h-[38px] text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200/80 flex items-center gap-1.5 transition"
+                    title="End current task session (attendance continues)"
                   >
-                    <CheckCircle2 size={13} />
-                    <span>Mark Completed</span>
+                    <CheckCircle2 size={13} className="text-rose-500" />
+                    <span>End Task</span>
                   </button>
-
-                  {/* More Actions Group */}
-                  <div className="flex items-center gap-1.5 ml-auto">
-                    <button
-                      onClick={() => {
-                        setNoteTargetTaskId(activeTask.project_task_id || activeTask.task_id);
-                        setNoteContent('');
-                        setShowNoteModal(true);
-                      }}
-                      className="clay-btn clay-btn-secondary py-2 px-2.5 text-xs rounded-xl min-h-[38px]"
-                      title="Add progress note"
-                    >
-                      <MessageSquare size={12} />
-                      <span>Note</span>
-                    </button>
-
-                    <button
-                      onClick={() => openEditModal(activeTask)}
-                      className="clay-btn clay-btn-secondary py-2 px-2.5 text-xs rounded-xl min-h-[38px]"
-                      title="Edit task details"
-                    >
-                      <Edit2 size={12} />
-                      <span>Edit</span>
-                    </button>
-                  </div>
                 </div>
               </div>
             ) : (
@@ -1562,25 +1437,11 @@ export default function Tracker() {
               </div>
 
                 {/* Project Summary Strip (Pinned) */}
-                <div className="clay-inset-well p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 my-3 shrink-0">
-                  <div>
+                <div className="clay-inset-well p-3 flex items-center justify-between gap-2.5 my-3 shrink-0">
+                  <div className="flex items-center">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Tracked Time:</span>
                     <span className="ml-2 font-mono text-sm sm:text-base font-bold text-slate-900">{formatHumanReadableDuration(liveTotalTaskSeconds)}</span>
                   </div>
-
-                  {projectBreakdown.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {projectBreakdown.map((pb, idx) => (
-                        <span 
-                          key={idx}
-                          className="clay-card-flat inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs text-slate-700"
-                        >
-                          <span className="font-semibold text-slate-900 text-[11px]">{pb.project_name}:</span>
-                          <span className="font-mono text-indigo-600 font-bold text-[11px]">{pb.duration_formatted}</span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
                 </div>
 
                 {/* Tasks List (Scrollable independently) */}
@@ -1605,11 +1466,13 @@ export default function Tracker() {
                               </span>
                               <h4 className="text-xs sm:text-sm font-bold text-slate-900 truncate">{t.task_name}</h4>
                               <span className={`clay-pill text-[9px] py-0 px-1.5 ${
-                                t.status === 'IN_PROGRESS' 
-                                  ? 'clay-pill-warning' 
-                                  : 'clay-pill-success'
+                                t.status === 'COMPLETED'
+                                  ? 'clay-pill-success'
+                                  : t.status === 'IN_PROGRESS'
+                                  ? 'clay-pill-warning'
+                                  : 'clay-pill-secondary'
                               }`}>
-                                {t.status === 'IN_PROGRESS' ? 'In Progress' : 'Completed'}
+                                {t.status === 'COMPLETED' ? 'Completed' : t.status === 'IN_PROGRESS' ? 'In Progress' : 'Ended'}
                               </span>
                             </div>
                             {t.description && (
@@ -1852,46 +1715,6 @@ export default function Tracker() {
                     <option key={p.project_id} value={p.name} />
                   ))}
                 </datalist>
-
-                {taskForm.project_name.trim() && (() => {
-                  const matching = unfinishedTasks.filter(
-                    (ut) => ut.project_name.toLowerCase() === taskForm.project_name.trim().toLowerCase()
-                  );
-                  if (matching.length === 0) return null;
-                  return (
-                    <div className="p-3 rounded-xl bg-indigo-50/90 border border-indigo-100 text-xs space-y-2 mt-2">
-                      <span className="font-bold text-indigo-900 block">
-                        Unfinished task(s) in "{taskForm.project_name.trim()}":
-                      </span>
-                      <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                        {matching.map((ut) => (
-                          <div
-                            key={ut.task_id}
-                            className="flex items-center justify-between bg-white p-2 rounded-lg border border-indigo-100/80 gap-2 shadow-2xs"
-                          >
-                            <div className="min-w-0">
-                              <p className="font-semibold text-slate-800 truncate">{ut.title}</p>
-                              <p className="text-[10px] text-slate-400 font-mono">{ut.task_id}</p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                handleResumeTask(ut);
-                                setShowStartWorkdayPrompt(false);
-                              }}
-                              className="px-2.5 py-1 rounded bg-indigo-600 text-white font-bold text-xs hover:bg-indigo-700 shrink-0 shadow-2xs transition"
-                            >
-                              Resume Task
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                      <p className="text-[10px] text-slate-500 italic">
-                        Click Resume above to continue without duplicate tasks, or enter a new task name below.
-                      </p>
-                    </div>
-                  );
-                })()}
               </div>
 
               <TaskNameSelector
@@ -1952,15 +1775,27 @@ export default function Tracker() {
       )}
 
       {/* ======================================================== */}
-      {/* MODAL 2: START NEW TASK */}
+      {/* MODAL 2: START NEW TASK / SWITCH TASK                     */}
       {/* ======================================================== */}
       {showNewTaskModal && (
         <div className="clay-modal-overlay">
           <div className="clay-modal-dialog p-6 sm:p-8 max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-bold text-slate-900 tracking-tight">Start New Task</h3>
-            <p className="text-xs text-slate-500 mt-1 mb-5 font-medium">
-              Enter your project and task details to start tracking time.
+            <h3 className="text-xl font-bold text-slate-900 tracking-tight">
+              {activeTask ? 'Switch Task' : 'Start New Task'}
+            </h3>
+            <p className="text-xs text-slate-500 mt-1 mb-4 font-medium">
+              {activeTask 
+                ? 'Enter details for your new task. Your active task will be ended and saved.' 
+                : 'Enter your project and task details to start tracking time.'}
             </p>
+
+            {activeTask && (
+              <div className="clay-card-flat p-3 mb-4 text-xs font-medium border border-indigo-100 bg-indigo-50/60 rounded-xl">
+                <span className="text-slate-500">Currently Active: </span>
+                <span className="font-bold text-slate-900">{activeTask.task_name}</span>{' '}
+                <span className="text-slate-500">({activeTask.project_name})</span>
+              </div>
+            )}
 
             <form onSubmit={handleStartNewTask} className="space-y-4">
               <div>
@@ -1981,46 +1816,6 @@ export default function Tracker() {
                     <option key={p.project_id} value={p.name} />
                   ))}
                 </datalist>
-
-                {taskForm.project_name.trim() && (() => {
-                  const matching = unfinishedTasks.filter(
-                    (ut) => ut.project_name.toLowerCase() === taskForm.project_name.trim().toLowerCase()
-                  );
-                  if (matching.length === 0) return null;
-                  return (
-                    <div className="p-3 rounded-xl bg-indigo-50/90 border border-indigo-100 text-xs space-y-2 mt-2">
-                      <span className="font-bold text-indigo-900 block">
-                        Unfinished task(s) in "{taskForm.project_name.trim()}":
-                      </span>
-                      <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                        {matching.map((ut) => (
-                          <div
-                            key={ut.task_id}
-                            className="flex items-center justify-between bg-white p-2 rounded-lg border border-indigo-100/80 gap-2 shadow-2xs"
-                          >
-                            <div className="min-w-0">
-                              <p className="font-semibold text-slate-800 truncate">{ut.title}</p>
-                              <p className="text-[10px] text-slate-400 font-mono">{ut.task_id}</p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                handleResumeTask(ut);
-                                setShowNewTaskModal(false);
-                              }}
-                              className="px-2.5 py-1 rounded bg-indigo-600 text-white font-bold text-xs hover:bg-indigo-700 shrink-0 shadow-2xs transition"
-                            >
-                              Resume Task
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                      <p className="text-[10px] text-slate-500 italic">
-                        Click Resume above to continue without duplicate tasks, or enter a new task name below.
-                      </p>
-                    </div>
-                  );
-                })()}
               </div>
 
               <TaskNameSelector
@@ -2030,7 +1825,7 @@ export default function Tracker() {
                 disabled={loadingAction}
               />
 
-              {/* 3. My Project Status - required dropdown */}
+              {/* My Project Status - required dropdown */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                   My Project Status <span className="text-rose-500 font-bold">* Required</span>
@@ -2047,7 +1842,7 @@ export default function Tracker() {
                 </select>
               </div>
 
-              {/* 4. Description - optional */}
+              {/* Description - optional */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                   Description <span className="text-slate-400 font-normal lowercase">(Optional)</span>
@@ -2074,96 +1869,9 @@ export default function Tracker() {
                   disabled={loadingAction}
                   className="clay-btn clay-btn-primary px-5 py-2.5 text-xs sm:text-sm font-semibold rounded-xl"
                 >
-                  {loadingAction ? 'Starting...' : 'Start Task'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================== */}
-      {/* MODAL 3: END TASK / START NEXT TASK */}
-      {/* ======================================================== */}
-      {showEndAndNextModal && activeTask && (
-        <div className="clay-modal-overlay">
-          <div className="clay-modal-dialog p-6 sm:p-8 max-w-md w-full max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-bold text-slate-900 tracking-tight">Switch to Next Task</h3>
-            <p className="text-xs text-slate-500 mt-1 mb-4 font-medium">
-              Completes the active task and immediately begins your next one.
-            </p>
-
-            <div className="clay-card-flat p-3.5 mb-4 text-xs font-medium">
-              <span className="text-slate-500">Currently Ending: </span>
-              <span className="font-bold text-slate-900">{activeTask.task_name}</span> ({activeTask.project_name})
-            </div>
-
-            <form onSubmit={handleEndAndStartNext} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                  Next Project Name <span className="text-rose-500 font-bold">* Required</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Project Beta"
-                  value={nextTaskForm.project_name}
-                  onChange={(e) => handleNextProjectNameChange(e.target.value)}
-                  className="clay-input w-full px-3.5 py-2.5 text-sm placeholder-slate-400 font-medium"
-                />
-              </div>
-
-              <TaskNameSelector
-                label="Next Task Name"
-                value={nextTaskForm.task_name}
-                onChange={(val) => setNextTaskForm({ ...nextTaskForm, task_name: val })}
-                jobFunction={currentJobFunction}
-                disabled={loadingAction}
-              />
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                  My Project Status <span className="text-rose-500 font-bold">* Required</span>
-                </label>
-                <select
-                  required
-                  value={nextTaskForm.project_status}
-                  onChange={(e) => setNextTaskForm({ ...nextTaskForm, project_status: e.target.value })}
-                  className="clay-input w-full px-3.5 py-2.5 text-sm font-medium cursor-pointer"
-                >
-                  <option value="JUST_STARTED">Just Started</option>
-                  <option value="IN_PROGRESS">In Progress</option>
-                  <option value="COMPLETED">Completed</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
-                  Description <span className="text-slate-400 font-normal lowercase">(Optional)</span>
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Description for the next task..."
-                  value={nextTaskForm.description}
-                  onChange={(e) => setNextTaskForm({ ...nextTaskForm, description: e.target.value })}
-                  className="clay-input w-full p-3 text-sm placeholder-slate-400 font-medium"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200/60">
-                <button
-                  type="button"
-                  onClick={() => setShowEndAndNextModal(false)}
-                  className="clay-btn clay-btn-secondary px-4 py-2.5 text-xs sm:text-sm font-semibold rounded-xl"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={loadingAction}
-                  className="clay-btn clay-btn-primary px-5 py-2.5 text-xs sm:text-sm font-semibold rounded-xl"
-                >
-                  {loadingAction ? 'Switching...' : 'Switch to Next Task'}
+                  {loadingAction 
+                    ? (activeTask ? 'Switching...' : 'Starting...') 
+                    : (activeTask ? 'Switch Task' : 'Start Task')}
                 </button>
               </div>
             </form>

@@ -139,18 +139,25 @@ def calculate_day_metrics(events_for_day, now_utc=None):
         if first_ev_dt:
             is_today = (first_ev_dt.astimezone(IST_TZ).date() == now_utc.astimezone(IST_TZ).date())
 
-    # If currently active on today's date, add duration up to now
+    # If currently active on today's date, add duration up to now (capped strictly at 7:30 PM IST cutoff)
     if is_today and now_utc:
+        today_ist_d = now_utc.astimezone(IST_TZ).date()
+        from datetime import time as dt_time
+        cutoff_today_utc = datetime.combine(today_ist_d, dt_time(19, 30, 0), tzinfo=IST_TZ).astimezone(timezone.utc)
+        effective_now = min(now_utc, cutoff_today_utc)
+
         if current_state == 'Working' and state_start_dt:
-            total_work_seconds += max(0, (now_utc - state_start_dt).total_seconds())
+            if effective_now > state_start_dt:
+                total_work_seconds += max(0, (effective_now - state_start_dt).total_seconds())
         elif current_state == 'On Break' and state_start_dt:
-            dur = max(0, (now_utc - state_start_dt).total_seconds())
-            total_break_seconds += dur
-            break_segments.append({
-                'start_time': state_start_dt,
-                'end_time': None,
-                'duration_seconds': int(dur)
-            })
+            if effective_now > state_start_dt:
+                dur = max(0, (effective_now - state_start_dt).total_seconds())
+                total_break_seconds += dur
+                break_segments.append({
+                    'start_time': state_start_dt,
+                    'end_time': None,
+                    'duration_seconds': int(dur)
+                })
 
     # Format break details (start - end in IST)
     break_detail_items = []
@@ -798,12 +805,12 @@ def close_employee_active_workday_and_timers(user_id, close_reason="END_WORK", s
 
             event_created = None
             if current_status in ['Working', 'On Break']:
-                event_created = storage.record_event(user_id, 'END_WORK', source=source)
+                event_created = storage.record_event(user_id, 'END_WORK', source=source, timestamp=now_utc)
             elif events:
                 # Check if the latest overall event was an unclosed start/break from a previous day
                 last_event = events[-1]
                 if last_event.get('event_type') in ['START_WORK', 'START_BREAK', 'RESUME_WORK']:
-                    event_created = storage.record_event(user_id, 'END_WORK', source=source)
+                    event_created = storage.record_event(user_id, 'END_WORK', source=source, timestamp=now_utc)
 
             cache.clear()
             return {
@@ -965,9 +972,13 @@ def ensure_employee_project_status(user, project_name, project_obj=None, startin
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def status_view(request):
-    now_utc = datetime.now(timezone.utc)
-    now_ist = now_utc.astimezone(IST_TZ)
+    from .auto_closure_service import enforce_user_workday_cutoff, get_current_ist_time
+    now_ist = get_current_ist_time()
+    now_utc = now_ist.astimezone(timezone.utc)
     today_ist_date = now_ist.date()
+    
+    if request.user.role == 'EMPLOYEE':
+        enforce_user_workday_cutoff(request.user.id, now_ist=now_ist)
     
     events = storage.get_events_for_user(request.user.id)
     
@@ -1060,10 +1071,16 @@ def action_view(request):
     if action not in valid_actions:
         return Response({'error': f'Invalid action: {action}.'}, status=400)
 
-    now_utc = datetime.now(timezone.utc)
+    from .auto_closure_service import is_tracking_action_allowed, get_current_ist_time
+    now_ist = get_current_ist_time()
+    now_utc = now_ist.astimezone(timezone.utc)
     now_utc_str = now_utc.isoformat().replace("+00:00", "Z")
-    now_ist = now_utc.astimezone(IST_TZ)
     today_ist_date = now_ist.date()
+
+    if action in ['START_WORK', 'START_BREAK', 'RESUME_WORK']:
+        allowed, reason, code = is_tracking_action_allowed(user=request.user, now_ist=now_ist)
+        if not allowed:
+            return Response({'error': reason, 'code': code}, status=400)
     
     # Fetch events & lock checks
     events = storage.get_events_for_user(request.user.id)
@@ -1168,7 +1185,7 @@ def action_view(request):
         return Response({'success': True, 'event': close_res.get('event'), 'status': 'Ended', 'server_time': now_utc_str})
 
     # Server writes timestamp, ignores any client timestamp
-    res = storage.record_event(request.user.id, action, source=source)
+    res = storage.record_event(request.user.id, action, source=source, timestamp=now_utc)
     return Response({'success': True, 'event': res, 'server_time': now_utc_str})
 
 
@@ -1276,17 +1293,21 @@ def admin_dashboard(request):
     if request.user.role != 'ADMIN':
         return Response({'error': 'Admin permissions required.'}, status=403)
         
+    from .auto_closure_service import close_all_active_sessions_at_cutoff, get_current_ist_time
+    now_ist = get_current_ist_time()
+    now_utc = now_ist.astimezone(timezone.utc)
+    today_ist_date = now_ist.date()
+
+    # Enforce cutoff closure for all employees if past 7:30 PM IST
+    close_all_active_sessions_at_cutoff(now_ist=now_ist)
+
     users = User.objects.filter(role='EMPLOYEE').order_by('first_name', 'last_name')
     all_events = storage.get_all_events()
     settings = storage.get_settings()
-    
-    now_utc = datetime.now(timezone.utc)
-    now_ist = now_utc.astimezone(IST_TZ)
-    today_ist_date = now_ist.date()
 
-    # Parse office hours for late/early comparison
-    work_start_h, work_start_m = map(int, settings.get('work_start_time', '10:00').split(':'))
-    work_end_h, work_end_m = map(int, settings.get('work_end_time', '19:00').split(':'))
+    # Parse office hours for late/early comparison (10:30 AM – 7:30 PM IST)
+    work_start_h, work_start_m = map(int, settings.get('work_start_time', '10:30').split(':'))
+    work_end_h, work_end_m = map(int, settings.get('work_end_time', '19:30').split(':'))
     
     office_start_dt = now_ist.replace(hour=work_start_h, minute=work_start_m, second=0, microsecond=0)
     office_end_dt = now_ist.replace(hour=work_end_h, minute=work_end_m, second=0, microsecond=0)
@@ -2252,8 +2273,8 @@ def get_monthly_timesheet_data(target_user, year, month, filter_project=None, fi
     entries_by_date = {e['date']: e for e in timesheet_entries}
     
     settings = storage.get_settings()
-    work_start_h, work_start_m = map(int, settings.get('work_start_time', '10:00').split(':'))
-    work_end_h, work_end_m = map(int, settings.get('work_end_time', '19:00').split(':'))
+    work_start_h, work_start_m = map(int, settings.get('work_start_time', '10:30').split(':'))
+    work_end_h, work_end_m = map(int, settings.get('work_end_time', '19:30').split(':'))
 
     now_utc = datetime.now(timezone.utc)
     now_ist = now_utc.astimezone(IST_TZ)
@@ -2724,8 +2745,9 @@ def daily_tasks_view(request):
     - Uses Asia/Kolkata (IST) consistently.
     - Shows each task once and calculates duration from today's actual work segments, excluding breaks.
     """
-    now_utc = datetime.now(timezone.utc)
-    now_ist = now_utc.astimezone(IST_TZ)
+    from .auto_closure_service import enforce_user_workday_cutoff, get_current_ist_time
+    now_ist = get_current_ist_time()
+    now_utc = now_ist.astimezone(timezone.utc)
     target_date_param = request.GET.get('date', now_ist.date().isoformat())
     try:
         target_date_obj = datetime.strptime(target_date_param.strip(), '%Y-%m-%d').date()
@@ -2756,6 +2778,9 @@ def daily_tasks_view(request):
                 target_user = first_emp
             else:
                 return Response({'error': 'No employees found in the system.'}, status=404)
+
+    if target_user and getattr(target_user, 'id', None):
+        enforce_user_workday_cutoff(target_user.id, now_ist=now_ist)
 
     filter_project = request.GET.get('project')
     logs_qs = TaskLog.objects.filter(user_id=target_user.id)
@@ -2823,18 +2848,13 @@ def daily_tasks_view(request):
                 is_paused = True
                 has_day_activity = True
 
-        # Fallback if no segments recorded
-        if not segs and tl.start_time:
+        # Fallback if no segments recorded (only for ended/closed tasks; in-progress open segments are already counted above)
+        if not segs and tl.start_time and tl.status != 'IN_PROGRESS':
             try:
                 s_dt = parse_iso_utc(tl.start_time)
                 if s_dt:
                     if tl.end_time:
                         e_dt = parse_iso_utc(tl.end_time)
-                    elif tl.status == 'IN_PROGRESS' and is_today_ist:
-                        e_dt = now_utc
-                        is_running = True
-                        has_day_activity = True
-                        cur_seg_start = tl.start_time
                     else:
                         base_sec = int(tl.duration_seconds or 0)
                         e_dt = s_dt + timedelta(seconds=base_sec)
@@ -2844,10 +2864,7 @@ def daily_tasks_view(request):
                         if ov_e > ov_s:
                             seg_dur = int((ov_e - ov_s).total_seconds())
                             dur_sec += seg_dur
-                            if tl.status == 'IN_PROGRESS' and is_today_ist:
-                                cur_seg_sec += seg_dur
-                            else:
-                                closed_dur_sec += seg_dur
+                            closed_dur_sec += seg_dur
                             has_day_activity = True
                             if earliest_s is None or ov_s < earliest_s: earliest_s = ov_s
                             if latest_e is None or ov_e > latest_e: latest_e = ov_e
@@ -2873,13 +2890,8 @@ def daily_tasks_view(request):
         if not has_day_activity and dur_sec == 0 and not is_running and not is_paused and not is_completed_today:
             continue
 
-        # Grouping key so each task is shown once
-        if tl.project_task_id:
-            g_key = f"pt_{tl.project_task_id}"
-        elif tl.project_id:
-            g_key = f"p_{tl.project_id}_{(tl.task_name or '').strip().lower()}"
-        else:
-            g_key = f"pn_{(tl.project_name or '').strip().lower()}_{(tl.task_name or '').strip().lower()}"
+        # Each task entry has a unique ID; never merge entries by task name.
+        g_key = f"tl_{tl.task_id}"
 
         if g_key not in grouped_tasks:
             grouped_tasks[g_key] = {
@@ -2958,12 +2970,12 @@ def daily_tasks_view(request):
         elif it['is_paused']:
             end_time_ist = 'Paused (Break)'
             status_display = 'PAUSED'
-        elif it['latest_end']:
-            end_time_ist = it['latest_end'].astimezone(IST_TZ).strftime('%I:%M:%S %p')
+        elif it.get('raw_status') == 'COMPLETED' or it.get('is_completed_today'):
+            end_time_ist = it['latest_end'].astimezone(IST_TZ).strftime('%I:%M:%S %p') if it['latest_end'] else start_time_ist
             status_display = 'COMPLETED'
         else:
-            end_time_ist = start_time_ist
-            status_display = 'COMPLETED'
+            end_time_ist = it['latest_end'].astimezone(IST_TZ).strftime('%I:%M:%S %p') if it['latest_end'] else start_time_ist
+            status_display = 'ENDED'
 
         task_item = {
             'sr_no': idx,
@@ -3083,9 +3095,14 @@ def start_task_view(request):
     if task_name.lower() == 'break':
         return Response({'error': 'Breaks should be recorded using the Start Break button rather than as a productive task.'}, status=400)
 
-    now_utc = datetime.now(timezone.utc)
-    now_ist = now_utc.astimezone(IST_TZ)
+    from .auto_closure_service import is_tracking_action_allowed, get_current_ist_time
+    now_ist = get_current_ist_time()
+    now_utc = now_ist.astimezone(timezone.utc)
     today_ist_date = now_ist.date()
+
+    allowed, reason, code = is_tracking_action_allowed(user=request.user, now_ist=now_ist)
+    if not allowed:
+        return Response({'error': reason, 'code': code}, status=400)
 
     events = storage.get_events_for_user(request.user.id)
     today_events = [
@@ -6261,9 +6278,15 @@ def project_task_start_view(request, task_id):
     if task.project.status == 'COMPLETED':
         return Response({'error': 'Cannot work on a task in a closed project. Contact admin to reopen the project.'}, status=400)
 
-    now_utc_dt = datetime.now(timezone.utc)
+    from .auto_closure_service import is_tracking_action_allowed, get_current_ist_time
+    now_ist = get_current_ist_time()
+    now_utc_dt = now_ist.astimezone(timezone.utc)
     now_utc_str = now_utc_dt.isoformat().replace("+00:00", "Z")
-    today_ist = now_utc_dt.astimezone(IST_TZ).date().isoformat()
+    today_ist = now_ist.date().isoformat()
+
+    allowed, reason, code = is_tracking_action_allowed(user=request.user, now_ist=now_ist)
+    if not allowed:
+        return Response({'error': reason, 'code': code}, status=400)
 
     # 1. Close/Pause any other active WorkSessions for this user across all tasks
     conflicting_sessions = WorkSession.objects.filter(user=request.user, status='IN_PROGRESS').exclude(task=task)

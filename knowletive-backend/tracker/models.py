@@ -291,8 +291,8 @@ class AuditLog(models.Model):
 class SystemSettings(models.Model):
     company_name = models.CharField(max_length=200, default='Knowletive')
     workspace_name = models.CharField(max_length=200, default='Knowletive')
-    work_start_time = models.CharField(max_length=10, default='10:00')
-    work_end_time = models.CharField(max_length=10, default='19:00')
+    work_start_time = models.CharField(max_length=10, default='10:30')
+    work_end_time = models.CharField(max_length=10, default='19:30')
     timezone = models.CharField(max_length=50, default='Asia/Kolkata')
 
 

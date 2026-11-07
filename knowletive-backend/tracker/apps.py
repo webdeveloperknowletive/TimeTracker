@@ -18,3 +18,10 @@ class TrackerConfig(AppConfig):
             call_command('migrate', interactive=False, verbosity=0)
         except Exception as e:
             print(f"Startup migration notice: {e}")
+
+        # Start the automatic 7:30 PM IST workday closure background scheduler
+        try:
+            from .auto_closure_service import start_background_scheduler
+            start_background_scheduler()
+        except Exception as e:
+            print(f"Auto-closure scheduler startup notice: {e}")

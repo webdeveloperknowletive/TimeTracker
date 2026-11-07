@@ -18,17 +18,22 @@ class TimeEventStorage:
         """Backward compatibility for tests and local inspection."""
         pass
 
-    def record_event(self, user_id, event_type, source='web', session_id=None):
+    def record_event(self, user_id, event_type, source='web', session_id=None, timestamp=None):
         with self._lock:
             event_id = str(uuid.uuid4())
-            now_utc = datetime.now(timezone.utc)
-            timestamp = now_utc.isoformat().replace("+00:00", "Z")
+            if not timestamp:
+                now_utc = datetime.now(timezone.utc)
+                ts_str = now_utc.isoformat().replace("+00:00", "Z")
+            elif isinstance(timestamp, datetime):
+                ts_str = timestamp.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+            else:
+                ts_str = str(timestamp).replace("+00:00", "Z")
             
             TimeEvent.objects.create(
                 event_id=event_id,
                 user_id=int(user_id),
                 event_type=event_type,
-                timestamp=timestamp,
+                timestamp=ts_str,
                 source=source,
                 session_id=session_id or ''
             )
@@ -36,9 +41,9 @@ class TimeEventStorage:
             self.log_audit(
                 action=f"TIME_EVENT_{event_type}",
                 actor=f"User ID {user_id}",
-                details={"event_id": event_id, "source": source, "timestamp": timestamp}
+                details={"event_id": event_id, "source": source, "timestamp": ts_str}
             )
-            return {'event_id': event_id, 'timestamp': timestamp}
+            return {'event_id': event_id, 'timestamp': ts_str}
 
     def log_audit(self, action, actor, details):
         with self._lock:
@@ -94,7 +99,14 @@ class TimeEventStorage:
         with self._lock:
             settings = SystemSettings.objects.first()
             if not settings:
-                settings = SystemSettings.objects.create()
+                settings = SystemSettings.objects.create(
+                    work_start_time='10:30',
+                    work_end_time='19:30'
+                )
+            elif settings.work_end_time == '19:00' or settings.work_start_time == '10:00':
+                settings.work_start_time = '10:30'
+                settings.work_end_time = '19:30'
+                settings.save(update_fields=['work_start_time', 'work_end_time'])
             return {
                 'company_name': settings.company_name,
                 'workspace_name': settings.workspace_name,
@@ -162,11 +174,18 @@ class TimeEventStorage:
             try:
                 cleaned = str(t_dict['current_segment_start']).replace("Z", "+00:00")
                 seg_start = datetime.fromisoformat(cleaned)
+                if seg_start.tzinfo is None:
+                    seg_start = seg_start.replace(tzinfo=timezone.utc)
                 now_ist_date = now_utc.astimezone(IST_TZ).date()
                 seg_ist_date = seg_start.astimezone(IST_TZ).date()
                 # Only live segment started today in IST accumulates active time
                 if seg_ist_date == now_ist_date:
-                    base_sec += max(0, int((now_utc - seg_start).total_seconds()))
+                    # Enforce workday cutoff clamp at 7:30 PM IST (19:30:00 IST)
+                    from datetime import time
+                    cutoff_utc = datetime.combine(seg_ist_date, time(19, 30, 0), tzinfo=IST_TZ).astimezone(timezone.utc)
+                    effective_now = min(now_utc, cutoff_utc)
+                    if effective_now > seg_start:
+                        base_sec += max(0, int((effective_now - seg_start).total_seconds()))
             except Exception: pass
         elif not t_dict.get('work_segments') and not t_dict.get('duration_seconds') and t_dict.get('start_time') and t_dict.get('end_time'):
             try:
@@ -176,12 +195,19 @@ class TimeEventStorage:
             except Exception: base_sec = 0
         return base_sec
 
+    def _get_current_utc(self):
+        try:
+            from .auto_closure_service import get_current_ist_time
+            return get_current_ist_time().astimezone(timezone.utc)
+        except Exception:
+            return datetime.now(timezone.utc)
+
     def start_task(self, user_id, project_name, task_name, description, user_email, employee_id='', employee_name='', project_task_id=None):
         with self._lock:
             user_id = int(user_id)
             if not project_name or not project_name.strip(): raise ValueError("Project name is required.")
             if not task_name or not task_name.strip(): raise ValueError("Task name is required.")
-            now_utc_dt = datetime.now(timezone.utc)
+            now_utc_dt = self._get_current_utc()
             now_utc = now_utc_dt.isoformat().replace("+00:00", "Z")
             today_ist = now_utc_dt.astimezone(IST_TZ).date().isoformat()
             
@@ -215,12 +241,9 @@ class TimeEventStorage:
                 if task_id_val:
                     project_task = ProjectTask.objects.filter(task_id=task_id_val, assigned_to_id=user_id).first()
                 else:
-                    # Check for existing unfinished task with same title under this project for this employee
-                    project_task = ProjectTask.objects.filter(
-                        project=project,
-                        assigned_to_id=user_id,
-                        title__iexact=clean_tname
-                    ).exclude(status='COMPLETED').first()
+                    # Every submission creates a distinct new task entry with a unique ID;
+                    # never silently resume or merge entries by task name.
+                    project_task = None
 
                 if not project_task:
                     project_task = ProjectTask.objects.create(
@@ -359,7 +382,7 @@ class TimeEventStorage:
     def end_task(self, user_id, task_log_id=None, user_email='employee', is_explicit_completed=False):
         with self._lock:
             user_id = int(user_id)
-            now_utc_dt = datetime.now(timezone.utc)
+            now_utc_dt = self._get_current_utc()
             now_utc = now_utc_dt.isoformat().replace("+00:00", "Z")
             
             qs = TaskLog.objects.filter(user_id=user_id)

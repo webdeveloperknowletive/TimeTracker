@@ -329,21 +329,31 @@ document.addEventListener('DOMContentLoaded', async () => {
         let displayWork = currentWorkBase;
         let displayBreak = currentBreakBase;
         const nowMs = Date.now() - serverSkewMs;
+        // Calculate today's 7:30 PM IST cutoff in UTC ms (IST is UTC + 5:30 = +19800000ms)
+        const nowIstDate = new Date(nowMs + 19800000);
+        const y = nowIstDate.getUTCFullYear();
+        const m = nowIstDate.getUTCMonth();
+        const d = nowIstDate.getUTCDate();
+        const cutoffUtcMs = Date.UTC(y, m, d, 14, 0, 0); // 19:30:00 IST = 14:00:00 UTC
+        const effectiveNowMs = Math.min(nowMs, cutoffUtcMs);
+        if (nowMs >= cutoffUtcMs && (currentStatusVal === 'Working' || currentStatusVal === 'On Break')) {
+            fetchStatus();
+        }
         if (currentStatusVal === 'Working' && sessionStartTime) {
-            const liveAdded = Math.max(0, Math.floor((nowMs - sessionStartTime) / 1000));
+            const liveAdded = Math.max(0, Math.floor((effectiveNowMs - sessionStartTime) / 1000));
             displayWork = currentWorkBase + liveAdded;
-            timeElapsed.textContent = `Work: ${formatDuration(displayWork)}`;
+            timeElapsed.textContent = `Work Time: ${formatDuration(displayWork)}`;
         }
         else if (currentStatusVal === 'On Break' && sessionStartTime) {
-            const liveAdded = Math.max(0, Math.floor((nowMs - sessionStartTime) / 1000));
+            const liveAdded = Math.max(0, Math.floor((effectiveNowMs - sessionStartTime) / 1000));
             displayBreak = currentBreakBase + liveAdded;
-            timeElapsed.textContent = `Break: ${formatDuration(displayBreak)}`;
+            timeElapsed.textContent = `Break Time: ${formatDuration(displayBreak)}`;
         }
         else if (currentStatusVal === 'Ended') {
-            timeElapsed.textContent = `Day Completed: ${formatDuration(displayWork)}`;
+            timeElapsed.textContent = `Workday Ended: ${formatDuration(displayWork)}`;
         }
         else {
-            timeElapsed.textContent = `Work: ${formatDuration(displayWork)}`;
+            timeElapsed.textContent = `Work Time: ${formatDuration(displayWork)}`;
         }
         switch (currentStatusVal) {
             case 'Not Started':
